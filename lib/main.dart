@@ -34,17 +34,68 @@ void main() async {
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  String _geminiApiKey = '';
+  String _geminiModel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiKeyAndModel();
+  }
+
+  Future<void> _loadApiKeyAndModel() async {
+    try {
+      final configString = await rootBundle.loadString('assets/.config');
+      final lines = configString.split('\n');
+      for (final line in lines) {
+        if (line.startsWith('GEMINI_API_KEY=')) {
+          setState(() {
+            _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
+          });
+        } else if (line.startsWith('MODEL_NAME=')) {
+          setState(() {
+            _geminiModel = line.substring('MODEL_NAME='.length).trim();
+          });
+        }
+      }
+      if (_geminiApiKey.isEmpty) {
+        print('GEMINI_API_KEY not found in .config file');
+      }
+      if (_geminiModel.isEmpty) {
+        print('MODEL_NAME not found in .config file');
+      }
+    } catch (e) {
+      print('Error loading .config file: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Firestore Dynamic Field Adder',
-      home: HomePage(), // Use the new HomePage widget
+      home: HomePage(
+        geminiApiKey: _geminiApiKey,
+        geminiModel: _geminiModel,
+      ), // Use the new HomePage widget
     );
   }
 }
 
 class HomePage extends StatefulWidget {
+  final String geminiApiKey;
+  final String geminiModel;
+
+  HomePage({
+    required this.geminiApiKey,
+    required this.geminiModel,
+  });
+
   @override
   _HomePageState createState() => _HomePageState();
 }
@@ -94,7 +145,11 @@ class _HomePageState extends State<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (context) => ViewDocumentsPage(templateName: templateName)),
+          builder: (context) => ViewDocumentsPage(
+                templateName: templateName,
+                geminiApiKey: widget.geminiApiKey,
+                geminiModel: widget.geminiModel,
+              )),
     );
   }
 

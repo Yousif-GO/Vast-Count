@@ -29,6 +29,7 @@ import 'package:pdf/pdf.dart' as pdf;
 import 'package:syncfusion_flutter_pdf/pdf.dart'
     as syncfusion_pdf; // Import with alias
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:mime/mime.dart';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -38,6 +39,8 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'view_documents_page.dart';
 
 class PdfOrImageProcessorPage extends StatefulWidget {
   @override
@@ -56,6 +59,12 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   String _status = '';
   int _linesPerBatch = 10; // Default value
   bool _showLinesPerBatch = false; // Control visibility
+  File? _selectedFile;
+  String? _selectedFileName;
+  Map<String, TextEditingController> _fieldControllers = {};
+  List<Map<String, dynamic>> _fields = [];
+  bool _loading = false;
+  File? _originalFile; // Add this at the class level
 
   @override
   void initState() {
@@ -71,6 +80,7 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
       templateNameController: TextEditingController(),
       setState: setState,
     );
+    _loadTemplates();
   }
 
   @override
@@ -102,10 +112,21 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _loadTemplates() async {
-    await _service.loadTemplates();
     setState(() {
-      _templates = _service.templates;
+      _processing = true;
     });
+    try {
+      await _service.loadTemplates();
+      setState(() {
+        _templates = _service.templates;
+      });
+    } catch (e) {
+      print('Error loading templates: $e');
+    } finally {
+      setState(() {
+        _processing = false;
+      });
+    }
   }
 
   Future<void> _pickAndProcessMultiplePDFs() async {
@@ -611,6 +632,85 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
           await Future.delayed(Duration(seconds: 1)); // Optional delay
         }
       }
+    }
+  }
+
+  Future<void> _selectFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+
+    if (result != null) {
+      setState(() {
+        _originalFile = File(result.files.single.path!); // Store original file
+        _selectedFile =
+            File(result.files.single.path!); // Use copy for processing
+        _selectedFileName = result.files.single.name;
+      });
+    }
+  }
+
+  Future<void> _uploadFile() async {
+    if (_originalFile == null || _selectedTemplate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a file and a template')),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+    });
+
+    try {
+      final storage = FirebaseStorage.instance;
+      final fileName = path.basename(_originalFile!.path);
+      final storageRef = storage.ref().child('files/$fileName');
+
+      // Upload the original unaltered file with correct metadata
+      String? mimeType = lookupMimeType(_originalFile!.path);
+
+      await storageRef.putFile(
+          _originalFile!, SettableMetadata(contentType: mimeType));
+
+      final fileUrl = await storageRef.getDownloadURL();
+
+      final firestore = FirebaseFirestore.instance;
+      final docRef = firestore
+          .collection(_selectedTemplate!['name'])
+          .doc(_selectedFileName);
+
+      Map<String, dynamic> data = {
+        'fileUrl': fileUrl,
+        'date': DateTime.now().toIso8601String(),
+      };
+
+      if (_fields.isNotEmpty) {
+        Map<String, dynamic> fieldsData = {};
+        for (var field in _fields) {
+          final controller = _fieldControllers[field['name']];
+          if (controller != null) {
+            fieldsData[field['name']] = controller.text;
+          }
+        }
+        data['fields'] = fieldsData;
+      }
+
+      await docRef.set(data);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File uploaded successfully')),
+      );
+    } catch (e) {
+      print('Error uploading file: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error uploading file')),
+      );
+    } finally {
+      setState(() {
+        _loading = false;
+      });
     }
   }
 
