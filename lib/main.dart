@@ -26,6 +26,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'view_documents_page.dart'; // Import the new page
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,69 +44,110 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class HomePage extends StatelessWidget {
-  final _formKey = GlobalKey<FormState>();
-  final _collectionNameController = TextEditingController();
-  final _documentNameController = TextEditingController();
-  final _templateNameController = TextEditingController();
-  final _fieldNameControllers = <TextEditingController>[];
-  final _fieldValueControllers = <TextEditingController>[];
-  final _templates = <Map<String, dynamic>>[];
-  late final DynamicFieldAdderService _service;
+class HomePage extends StatefulWidget {
+  @override
+  _HomePageState createState() => _HomePageState();
+}
 
-  HomePage({super.key}) {
+class _HomePageState extends State<HomePage> {
+  String _geminiOutput = '';
+  String _selectedTemplate = '';
+  List<Map<String, dynamic>> _templates = [];
+  late DynamicFieldAdderService _service;
+
+  @override
+  void initState() {
+    super.initState();
     _service = DynamicFieldAdderService(
-      formKey: _formKey,
-      collectionNameController: _collectionNameController,
-      documentNameController: _documentNameController,
-      fieldNameControllers: _fieldNameControllers,
-      fieldValueControllers: _fieldValueControllers,
+      formKey: GlobalKey<FormState>(),
+      collectionNameController: TextEditingController(),
+      documentNameController: TextEditingController(),
+      fieldNameControllers: [],
+      fieldValueControllers: [],
       templates: _templates,
-      templateNameController: _templateNameController,
-      setState: (fn) {},
+      templateNameController: TextEditingController(),
+      setState: setState,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadTemplates();
+  }
+
+  Future<void> _loadTemplates() async {
+    await _service.loadTemplates();
+    setState(() {
+      _templates = _service.templates;
+    });
+  }
+
+  void _processImage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PdfOrImageProcessorPage()),
+    );
+  }
+
+  void _viewDocuments(String templateName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (context) => ViewDocumentsPage(templateName: templateName)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Main Page')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+      appBar: AppBar(
+        title: Text('Gemini Demo'),
+      ),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => DynamicFieldAdder()),
+              );
+            },
+            child: Text('Add Template'),
+          ),
+          ElevatedButton(
+            onPressed: _processImage,
+            child: Text('Process Image or PDF'),
+          ),
+          DropdownButton<String>(
+            value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
+            hint: Text('Select a template'),
+            items: _templates.map((template) {
+              return DropdownMenuItem<String>(
+                value: template['name'],
+                child: Text(template['name']),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedTemplate = value!;
+              });
+            },
+          ),
+          if (_selectedTemplate.isNotEmpty)
             ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => DynamicFieldAdder()),
-                );
-              },
-              child: Text('Add Template'),
+              onPressed: () => _viewDocuments(_selectedTemplate),
+              child: Text('View Documents'),
             ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => ImageProcessorPage()),
-                );
-              },
-              child: Text('Process Image'),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              'Gemini Output:\n$_geminiOutput',
+              textAlign: TextAlign.left,
             ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => PdfOrImageProcessorPage()),
-                );
-              },
-              child: Text('Process PDF or Images'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

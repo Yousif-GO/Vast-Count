@@ -480,7 +480,20 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         if (startIdx != -1 && endIdx != -1) {
           responseText = responseText.substring(startIdx, endIdx);
         }
-        final jsonOutput = json.decode(responseText);
+        dynamic jsonOutput;
+        try {
+          jsonOutput = json.decode(responseText);
+        } catch (e) {
+          try {
+            jsonOutput = json.decode(responseText);
+          } catch (e) {
+            setState(() {
+              _geminiOutput =
+                  'Error decoding JSON: $e\nRaw Response: $responseText';
+            });
+            return;
+          }
+        }
         setState(() {
           _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
         });
@@ -555,7 +568,20 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         if (startIdx != -1 && endIdx != -1) {
           responseText = responseText.substring(startIdx, endIdx);
         }
-        final jsonOutput = json.decode(responseText);
+        dynamic jsonOutput;
+        try {
+          jsonOutput = json.decode(responseText);
+        } catch (e) {
+          try {
+            jsonOutput = json.decode(responseText);
+          } catch (e) {
+            setState(() {
+              _geminiOutput =
+                  'Error decoding JSON: $e\nRaw Response: $responseText';
+            });
+            return;
+          }
+        }
         setState(() {
           _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
         });
