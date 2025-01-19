@@ -484,6 +484,8 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   late DynamicFieldAdderService _service;
   bool _processing = false;
   String _status = '';
+  int _linesPerBatch = 10; // Default value
+  bool _showLinesPerBatch = false; // Control visibility
 
   @override
   void initState() {
@@ -537,12 +539,13 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessMultiplePDFs() async {
-    try {
-      setState(() {
-        _processing = true;
-        _status = 'Selecting PDFs...';
-      });
+    setState(() {
+      _showLinesPerBatch = false;
+      _processing = true;
+      _status = 'Selecting PDFs...';
+    });
 
+    try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -600,6 +603,7 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
 
   Future<void> _pickAndProcessImages() async {
     setState(() {
+      _showLinesPerBatch = false;
       _processing = true;
       _status = 'Selecting images...';
     });
@@ -655,12 +659,13 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessImageFolder() async {
-    try {
-      setState(() {
-        _processing = true;
-        _status = 'Selecting folder...';
-      });
+    setState(() {
+      _showLinesPerBatch = false;
+      _processing = true;
+      _status = 'Selecting folder...';
+    });
 
+    try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
@@ -720,6 +725,67 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
     } catch (e) {
       setState(() {
         _status = 'Error selecting folder: $e';
+        _processing = false;
+      });
+    }
+  }
+
+  Future<void> _pickAndProcessTextFile() async {
+    setState(() {
+      _showLinesPerBatch = true;
+      _processing = true;
+      _status = 'Selecting text file...';
+    });
+
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+
+      if (result == null || result.files.isEmpty) {
+        setState(() {
+          _status = 'No text file selected';
+          _processing = false;
+        });
+        return;
+      }
+
+      final file = result.files.first;
+      final fileBytes = file.bytes;
+      if (fileBytes == null) {
+        setState(() {
+          _status = 'Error reading file bytes';
+          _processing = false;
+        });
+        return;
+      }
+
+      final fileString = utf8.decode(fileBytes);
+      final lines = fileString.split('\n');
+      int processedLines = 0;
+      while (processedLines < lines.length) {
+        final batch = lines.sublist(
+            processedLines,
+            processedLines + _linesPerBatch > lines.length
+                ? lines.length
+                : processedLines + _linesPerBatch);
+        final textBatch = batch.join('\n');
+        setState(() {
+          _status =
+              'Processing lines ${processedLines + 1}-${processedLines + batch.length} of ${lines.length}...';
+        });
+        await _processText(textBatch);
+        processedLines += batch.length;
+      }
+
+      setState(() {
+        _status = 'Finished processing text file';
+        _processing = false;
+      });
+    } catch (e) {
+      setState(() {
+        _status = 'Error processing text file: $e';
         _processing = false;
       });
     }
@@ -851,6 +917,16 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
               },
             ),
           ),
+          if (_showLinesPerBatch)
+            TextField(
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: 'Lines per batch'),
+              onChanged: (value) {
+                setState(() {
+                  _linesPerBatch = int.tryParse(value) ?? 10;
+                });
+              },
+            ),
           ElevatedButton(
             onPressed: _pickAndProcessMultiplePDFs,
             child: Text('Process PDFs'),
@@ -862,6 +938,10 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
           ElevatedButton(
             onPressed: _pickAndProcessImageFolder,
             child: Text('Process Image Folder'),
+          ),
+          ElevatedButton(
+            onPressed: _pickAndProcessTextFile,
+            child: Text('Process Text File'),
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
