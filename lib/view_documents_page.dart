@@ -29,12 +29,10 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
   Map<String, double> _columnSums = {};
   final TextEditingController _filterController = TextEditingController();
   String _filterColumn = '';
-  Map<String, bool> _isDateColumn = {};
   int _filterKey = 0;
   Map<String, double> _savedSums = {};
   String _selectedOperation = 'add';
-  String _filterDate = '';
-  final TextEditingController _dateFilterController = TextEditingController();
+  Map<String, bool> _isDateColumn = {};
 
   @override
   void initState() {
@@ -74,7 +72,6 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
           _columns = allKeys.toList();
           _selectedColumns = {for (var column in _columns) column: false};
           _isDateColumn = {for (var column in _columns) column: false};
-          _calculateSums();
         }
       }
     } catch (e) {
@@ -114,33 +111,6 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
     } catch (e) {
       return 0.0; // Return 0 if parsing fails
     }
-  }
-
-  void _calculateSums() {
-    _columnSums = {};
-    for (var column in _columns) {
-      if (_selectedColumns[column] == true) {
-        double sum = 0;
-        for (var doc in _filteredDocuments) {
-          dynamic value;
-          if (doc.containsKey('fields') && doc['fields'] is Map) {
-            final fields = doc['fields'] as Map;
-            value = fields[column];
-          } else {
-            value = doc[column];
-          }
-          if (value != null) {
-            if (value is String) {
-              sum += _parseNumber(value);
-            } else if (value is num) {
-              sum += value.toDouble();
-            }
-          }
-        }
-        _columnSums[column] = sum;
-      }
-    }
-    setState(() {});
   }
 
   String _formatNumber(double number) {
@@ -199,22 +169,8 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
 
         return docValue.toString().toLowerCase().contains(filterValue);
       }).toList();
-      _calculateSums();
       _filterKey++;
     });
-  }
-
-  Future<void> _saveSums() async {
-    final firestore = FirebaseFirestore.instance;
-    for (var entry in _columnSums.entries) {
-      await firestore.collection('sums').add({
-        'templateName': widget.templateName,
-        'column': entry.key,
-        'sum': entry.value,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-    }
-    _loadSavedSums();
   }
 
   Future<void> _loadSavedSums() async {
@@ -451,7 +407,6 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
         }
       }
       _filteredDocuments = List.from(_documents);
-      _calculateSums();
     } catch (e) {
       print('Error creating Gemini column: $e');
     } finally {
@@ -489,7 +444,6 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                     }
                   }
                   _filteredDocuments = List.from(_documents);
-                  _calculateSums();
                 });
                 // Delete from Firestore
                 final firestore = FirebaseFirestore.instance;
@@ -509,6 +463,26 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
         );
       },
     );
+  }
+
+  void _calculateSums() {
+    _columnSums = {};
+    for (var column in _columns) {
+      if (_selectedColumns[column] == true) {
+        double sum = 0;
+        for (var doc in _filteredDocuments) {
+          if (doc.containsKey(column)) {
+            sum += _parseNumber(doc[column].toString());
+          } else if (doc.containsKey('fields') && doc['fields'] is Map) {
+            final fields = doc['fields'] as Map;
+            if (fields.containsKey(column)) {
+              sum += _parseNumber(fields[column].toString());
+            }
+          }
+        }
+        _columnSums[column] = sum;
+      }
+    }
   }
 
   @override
@@ -634,54 +608,10 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ..._columnSums.entries
-                                .map((entry) => Text(
-                                    'Sum of ${entry.key}: ${_formatNumber(entry.value)}'))
-                                .toList(),
-                            SizedBox(height: 10),
-                            ElevatedButton(
-                              onPressed: _saveSums,
-                              child: Text('Save Sums'),
-                            ),
-                            if (_savedSums.isNotEmpty)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(height: 10),
-                                  Text('Saved Sums:'),
-                                  ..._savedSums.entries.map((entry) {
-                                    final currentSum =
-                                        _columnSums[entry.key] ?? 0;
-                                    final operatedSum = _performOperation(
-                                        currentSum, entry.value);
-                                    return Text(
-                                        '${entry.key}: ${_formatNumber(entry.value)} (Current: ${_formatNumber(currentSum)}, Operated: ${_formatNumber(operatedSum)})');
-                                  }).toList(),
-                                  DropdownButton<String>(
-                                    value: _selectedOperation,
-                                    onChanged: (String? newValue) {
-                                      if (newValue != null) {
-                                        setState(() {
-                                          _selectedOperation = newValue;
-                                        });
-                                      }
-                                    },
-                                    items: <String>[
-                                      'add',
-                                      'subtract',
-                                      'multiply'
-                                    ].map<DropdownMenuItem<String>>(
-                                        (String value) {
-                                      return DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(value),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ],
-                              ),
-                          ],
+                          children: _columnSums.entries
+                              .map((entry) => Text(
+                                  'Sum of ${entry.key}: ${_formatNumber(entry.value)}'))
+                              .toList(),
                         ),
                       ),
                     ElevatedButton(
