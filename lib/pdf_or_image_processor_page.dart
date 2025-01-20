@@ -132,6 +132,12 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessMultiplePDFs() async {
+    if (_selectedTemplate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a template first')),
+      );
+      return;
+    }
     setState(() {
       _showLinesPerBatch = false;
       _processing = true;
@@ -214,6 +220,12 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessImages() async {
+    if (_selectedTemplate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a template first')),
+      );
+      return;
+    }
     setState(() {
       _showLinesPerBatch = false;
       _processing = true;
@@ -290,10 +302,16 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessImageFolder() async {
+    if (_selectedTemplate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a template first')),
+      );
+      return;
+    }
     setState(() {
       _showLinesPerBatch = false;
       _processing = true;
-      _status = 'Selecting folder...';
+      _status = 'Selecting image folder...';
     });
 
     try {
@@ -380,8 +398,50 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   }
 
   Future<void> _pickAndProcessTextFile() async {
+    if (_selectedTemplate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a template first')),
+      );
+      return;
+    }
+    int? linesPerBatch;
+    await showDialog<int>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Enter Lines Per Batch'),
+          content: TextField(
+            keyboardType: TextInputType.number,
+            onChanged: (value) {
+              linesPerBatch = int.tryParse(value);
+            },
+            decoration: InputDecoration(hintText: 'Number of lines'),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop(linesPerBatch);
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    if (linesPerBatch == null) {
+      return; // User cancelled or entered invalid input
+    }
+
     setState(() {
       _showLinesPerBatch = true;
+      _linesPerBatch = linesPerBatch!;
       _processing = true;
       _status = 'Selecting text file...';
     });
@@ -788,15 +848,36 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
             ),
           ElevatedButton(
             onPressed: _pickAndProcessMultiplePDFs,
-            child: Text('Process PDFs'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.picture_as_pdf),
+                SizedBox(width: 8),
+                Text('Process PDFs'),
+              ],
+            ),
           ),
           ElevatedButton(
             onPressed: _pickAndProcessImages,
-            child: Text('Process Images'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.image),
+                SizedBox(width: 8),
+                Text('Process Images'),
+              ],
+            ),
           ),
           ElevatedButton(
             onPressed: _pickAndProcessTextFile,
-            child: Text('Process Text File'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.text_snippet),
+                SizedBox(width: 8),
+                Text('Process Text File'),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),

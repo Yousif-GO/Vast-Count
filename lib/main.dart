@@ -41,61 +41,57 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  bool _isLoggedIn = false;
   String _geminiApiKey = '';
   String _geminiModel = '';
-  bool _isLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
     _checkLoginStatus();
-    _loadApiKeyAndModel();
+    _loadApiKey();
   }
 
   Future<void> _checkLoginStatus() async {
-    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+    FirebaseAuth.instance.authStateChanges().listen((user) {
       setState(() {
         _isLoggedIn = user != null;
       });
     });
   }
 
-  Future<void> _loadApiKeyAndModel() async {
+  Future<void> _loadApiKey() async {
     try {
       final configString = await rootBundle.loadString('assets/.config');
       final lines = configString.split('\n');
       for (final line in lines) {
         if (line.startsWith('GEMINI_API_KEY=')) {
-          setState(() {
-            _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
-          });
+          _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
         } else if (line.startsWith('MODEL_NAME=')) {
-          setState(() {
-            _geminiModel = line.substring('MODEL_NAME='.length).trim();
-          });
+          _geminiModel = line.substring('MODEL_NAME='.length).trim();
         }
       }
       if (_geminiApiKey.isEmpty) {
         print('GEMINI_API_KEY not found in .config file');
-      }
-      if (_geminiModel.isEmpty) {
-        print('MODEL_NAME not found in .config file');
       }
     } catch (e) {
       print('Error loading .config file: $e');
     }
   }
 
+  Future<bool> _isEmailVerified() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await user.reload();
+      return user.emailVerified;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Firestore Dynamic Field Adder',
-      home: _isLoggedIn
-          ? HomePage(
-              geminiApiKey: _geminiApiKey,
-              geminiModel: _geminiModel,
-            )
-          : LoginPage(),
+      title: 'Gemini App',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -173,6 +169,26 @@ class _MyAppState extends State<MyApp> {
         iconTheme: IconThemeData(color: Colors.blueGrey[900]),
       ),
       themeMode: ThemeMode.system,
+      home: _isLoggedIn
+          ? FutureBuilder<bool>(
+              future: _isEmailVerified(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (snapshot.hasData && snapshot.data == true) {
+                  return HomePage(
+                    geminiApiKey: _geminiApiKey,
+                    geminiModel: _geminiModel,
+                  );
+                } else {
+                  return EmailVerificationPage();
+                }
+              },
+            )
+          : LoginPage(),
     );
   }
 }
@@ -411,7 +427,14 @@ class _HomePageState extends State<HomePage> {
                   padding: EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12), // Padding
                 ),
-                child: Text('Add Template'),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add),
+                    SizedBox(width: 8),
+                    Text('Add Template'),
+                  ],
+                ),
               ),
               SizedBox(height: 16),
               ElevatedButton(
@@ -425,7 +448,14 @@ class _HomePageState extends State<HomePage> {
                   padding: EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12), // Padding
                 ),
-                child: Text('Process Image or PDF'),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.image),
+                    SizedBox(width: 8),
+                    Text('Process Image or PDF'),
+                  ],
+                ),
               ),
               SizedBox(height: 16),
               DropdownButton<String>(
@@ -456,7 +486,14 @@ class _HomePageState extends State<HomePage> {
                     padding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12), // Padding
                   ),
-                  child: Text('View Documents'),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.visibility),
+                      SizedBox(width: 8),
+                      Text('View Documents'),
+                    ],
+                  ),
                 )
             ],
           ),
@@ -568,13 +605,6 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
                 }
               },
               _service.removeField,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Gemini Output:\n$_geminiOutput',
-              textAlign: TextAlign.left,
             ),
           ),
         ],
@@ -758,6 +788,68 @@ class _ImageProcessorPageState extends State<ImageProcessorPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class EmailVerificationPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Verify Email')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Please verify your email address. A verification link has been sent to your email.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () async {
+                  await FirebaseAuth.instance.currentUser?.reload();
+                  if (FirebaseAuth.instance.currentUser?.emailVerified ==
+                      true) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HomePage(
+                          geminiApiKey: '',
+                          geminiModel: '',
+                        ),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              'Email not verified yet. Please check your email and try again.')),
+                    );
+                  }
+                },
+                child: Text('Check Verification Status'),
+              ),
+              SizedBox(height: 10),
+              TextButton(
+                onPressed: () async {
+                  await FirebaseAuth.instance.currentUser
+                      ?.sendEmailVerification();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'A new verification email has been sent to your email address.')),
+                  );
+                },
+                child: Text('Resend Verification Email'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -85,12 +85,26 @@ Widget buildDynamicFieldAdderUI(
             ),
             ElevatedButton(
               onPressed: addField,
-              child: Text('Add Field'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add),
+                  SizedBox(width: 8),
+                  Text('Add Field manually'),
+                ],
+              ),
             ),
             SizedBox(height: 20),
             ElevatedButton(
               onPressed: saveTemplate,
-              child: Text('Save Template'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.save),
+                  SizedBox(width: 8),
+                  Text('Save Template'),
+                ],
+              ),
             ),
             SizedBox(height: 20),
             ElevatedButton(
@@ -106,7 +120,14 @@ Widget buildDynamicFieldAdderUI(
                   }
                 }
               },
-              child: Text('Generate Template From Image'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.image),
+                  SizedBox(width: 8),
+                  Text('Generate Template From Image'),
+                ],
+              ),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -122,7 +143,14 @@ Widget buildDynamicFieldAdderUI(
                   }
                 }
               },
-              child: Text('Generate Template From PDF'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.picture_as_pdf),
+                  SizedBox(width: 8),
+                  Text('Generate Template From PDF'),
+                ],
+              ),
             ),
             Expanded(
               child: ListView.builder(
