@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 Widget buildDynamicFieldAdderUI(
   BuildContext context,
   GlobalKey<FormState> formKey,
   TextEditingController collectionNameController,
-  TextEditingController documentNameController,
+  TextEditingController? documentNameController,
   TextEditingController templateNameController,
   List<TextEditingController> fieldNameControllers,
   List<TextEditingController> fieldValueControllers,
   List<Map<String, dynamic>> templates,
-  void Function() addField,
+  VoidCallback addField,
   Future<void> Function() addDynamicFields,
   Future<void> Function() saveTemplate,
   void Function(Map<String, dynamic>) applyTemplate,
+  Future<void> Function() generateTemplateFromImage,
+  Future<void> Function() generateTemplateFromPdf,
+  void Function(int) removeField,
 ) {
   return Scaffold(
     appBar: AppBar(title: Text('Add Dynamic Fields')),
@@ -22,26 +26,6 @@ Widget buildDynamicFieldAdderUI(
         key: formKey,
         child: Column(
           children: [
-            TextFormField(
-              controller: collectionNameController,
-              decoration: InputDecoration(labelText: 'Collection Name'),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter collection name';
-                }
-                return null;
-              },
-            ),
-            TextFormField(
-              controller: documentNameController,
-              decoration: InputDecoration(labelText: 'Document Name'),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter document name';
-                }
-                return null;
-              },
-            ),
             TextFormField(
               controller: templateNameController,
               decoration: InputDecoration(labelText: 'Template Name'),
@@ -87,6 +71,12 @@ Widget buildDynamicFieldAdderUI(
                             },
                           ),
                         ),
+                        IconButton(
+                          icon: Icon(Icons.delete),
+                          onPressed: () {
+                            removeField(index);
+                          },
+                        ),
                       ],
                     ),
                   );
@@ -99,15 +89,41 @@ Widget buildDynamicFieldAdderUI(
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: addDynamicFields,
-              child: Text('Add Fields'),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
               onPressed: saveTemplate,
               child: Text('Save Template'),
             ),
             SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.image,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await generateTemplateFromImage();
+                  }
+                }
+              },
+              child: Text('Generate Template From Image'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['pdf'],
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await generateTemplateFromPdf();
+                  }
+                }
+              },
+              child: Text('Generate Template From PDF'),
+            ),
             Expanded(
               child: ListView.builder(
                 itemCount: templates.length,

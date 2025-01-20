@@ -30,6 +30,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart'
     as syncfusion_pdf; // Import with alias
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:mime/mime.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -47,6 +48,7 @@ class PdfOrImageProcessorPage extends StatefulWidget {
   _PdfOrImageProcessorPageState createState() =>
       _PdfOrImageProcessorPageState();
 }
+// ... existing code ...
 
 class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   String _geminiOutput = '';
@@ -520,8 +522,10 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         });
 
         // Upload to Firebase Storage
-        final storageRef =
-            FirebaseStorage.instance.ref().child('files/$fileName');
+        final userId = FirebaseAuth.instance.currentUser?.uid;
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('files/${userId != null ? userId + '/' : ''}$fileName');
         final storageUploadTask = storageRef.putString(text);
         final storageSnapshot = await storageUploadTask;
         final downloadUrl = await storageSnapshot.ref.getDownloadURL();
@@ -529,9 +533,21 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         // Save to Firestore
         final collectionName = _selectedTemplate!['name'] as String;
         final firestore = FirebaseFirestore.instance;
-        await firestore
-            .collection(collectionName)
-            .add({...jsonOutput, 'fileUrl': downloadUrl});
+        if (userId != null) {
+          await firestore
+              .collection('users')
+              .doc(userId)
+              .collection('data')
+              .doc(collectionName)
+              .collection('entries')
+              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        } else {
+          await firestore
+              .collection('data')
+              .doc(collectionName)
+              .collection('entries')
+              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        }
         return; // Exit the loop if successful
       } catch (e) {
         retries++;
@@ -608,8 +624,10 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         });
 
         // Upload to Firebase Storage
-        final storageRef =
-            FirebaseStorage.instance.ref().child('files/$fileName');
+        final userId = FirebaseAuth.instance.currentUser?.uid;
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('files/${userId != null ? userId + '/' : ''}$fileName');
         final storageUploadTask = storageRef.putData(imageBytes);
         final storageSnapshot = await storageUploadTask;
         final downloadUrl = await storageSnapshot.ref.getDownloadURL();
@@ -617,9 +635,21 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         // Save to Firestore
         final collectionName = _selectedTemplate!['name'] as String;
         final firestore = FirebaseFirestore.instance;
-        await firestore
-            .collection(collectionName)
-            .add({...jsonOutput, 'fileUrl': downloadUrl});
+        if (userId != null) {
+          await firestore
+              .collection('users')
+              .doc(userId)
+              .collection('data')
+              .doc(collectionName)
+              .collection('entries')
+              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        } else {
+          await firestore
+              .collection('data')
+              .doc(collectionName)
+              .collection('entries')
+              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        }
         return; // Exit the loop if successful
       } catch (e) {
         retries++;
@@ -666,7 +696,10 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
     try {
       final storage = FirebaseStorage.instance;
       final fileName = path.basename(_originalFile!.path);
-      final storageRef = storage.ref().child('files/$fileName');
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      final storageRef = storage
+          .ref()
+          .child('files/${userId != null ? userId + '/' : ''}$fileName');
 
       // Upload the original unaltered file with correct metadata
       String? mimeType = lookupMimeType(_originalFile!.path);
@@ -678,7 +711,11 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
 
       final firestore = FirebaseFirestore.instance;
       final docRef = firestore
-          .collection(_selectedTemplate!['name'])
+          .collection('users')
+          .doc(userId)
+          .collection('data')
+          .doc(_selectedTemplate!['name'])
+          .collection('entries')
           .doc(_selectedFileName);
 
       Map<String, dynamic> data = {
@@ -758,10 +795,6 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
             child: Text('Process Images'),
           ),
           ElevatedButton(
-            onPressed: _pickAndProcessImageFolder,
-            child: Text('Process Image Folder'),
-          ),
-          ElevatedButton(
             onPressed: _pickAndProcessTextFile,
             child: Text('Process Text File'),
           ),
@@ -775,7 +808,7 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Text(
-              'Gemini Output:\n$_geminiOutput',
+              'AI Output:\n$_geminiOutput',
               textAlign: TextAlign.left,
             ),
           ),

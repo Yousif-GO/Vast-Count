@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:function_tree/function_tree.dart';
 import 'package:google_generative_ai/google_generative_ai.dart' as gen_ai;
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ViewDocumentsPage extends StatefulWidget {
   final String templateName;
@@ -33,6 +34,16 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
   Map<String, double> _savedSums = {};
   String _selectedOperation = 'add';
   Map<String, bool> _isDateColumn = {};
+  final TextEditingController _dateFilterController = TextEditingController();
+  final TextEditingController _dateFilterController2 = TextEditingController();
+  List<FilterCondition> _filterConditions = [];
+  String? _selectedFilterColumn;
+  String? _selectedFilterOperator;
+  final TextEditingController _filterValueController = TextEditingController();
+  String? _selectedDateFilterColumn;
+  String? _selectedDateFilterOperator;
+  String? _selectedGeminiColumn;
+  final ScrollController _horizontalScrollController = ScrollController();
 
   @override
   void initState() {
@@ -46,9 +57,27 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
       _loading = true;
     });
     try {
+      final userId = FirebaseAuth.instance.currentUser?.uid;
       final firestore = FirebaseFirestore.instance;
-      final snapshot = await firestore.collection(widget.templateName).get();
-      if (snapshot.docs.isNotEmpty) {
+      QuerySnapshot<Map<String, dynamic>> snapshot;
+
+      if (userId != null) {
+        snapshot = await firestore
+            .collection('users')
+            .doc(userId)
+            .collection('data')
+            .doc(widget.templateName)
+            .collection('entries')
+            .get();
+      } else {
+        snapshot = await firestore
+            .collection('data')
+            .doc(widget.templateName)
+            .collection('entries')
+            .get();
+      }
+
+      setState(() {
         _documents = snapshot.docs.map((doc) {
           var data = doc.data();
           data['id'] = doc.id;
@@ -72,8 +101,9 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
           _columns = allKeys.toList();
           _selectedColumns = {for (var column in _columns) column: false};
           _isDateColumn = {for (var column in _columns) column: false};
+          _calculateSums();
         }
-      }
+      });
     } catch (e) {
       print('Error loading documents: $e');
     } finally {
@@ -149,25 +179,111 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
   void _filterDocuments() {
     setState(() {
       _filteredDocuments = _documents.where((doc) {
-        if (_filterColumn.isEmpty) {
-          return true; // Show all documents if no filter column is selected
+        if (_filterConditions.isEmpty &&
+            (_selectedDateFilterColumn == null ||
+                _selectedDateFilterOperator == null ||
+                _dateFilterController.text.isEmpty)) {
+          return true;
         }
-
-        final filterValue = _filterController.text.toLowerCase();
-        dynamic docValue;
-
-        if (doc.containsKey('fields') && doc['fields'] is Map) {
-          final fields = doc['fields'] as Map;
-          docValue = fields[_filterColumn];
-        } else {
-          docValue = doc[_filterColumn];
+        bool match = true;
+        // Apply regular filters
+        for (var condition in _filterConditions) {
+          final column = condition.column;
+          final operator = condition.operator;
+          final value = condition.value;
+          dynamic docValue;
+          if (doc.containsKey(column)) {
+            docValue = doc[column];
+          } else if (doc.containsKey('fields') && doc['fields'] is Map) {
+            final fields = doc['fields'] as Map;
+            if (fields.containsKey(column)) {
+              docValue = fields[column];
+            }
+          }
+          if (docValue == null) {
+            match = false;
+            break;
+          }
+          switch (operator) {
+            case 'equals':
+              match = docValue.toString() == value;
+              break;
+            case 'contains':
+              match = docValue
+                  .toString()
+                  .toLowerCase()
+                  .contains(value.toLowerCase());
+              break;
+            case 'greater than':
+              match = _parseNumber(docValue.toString()) > _parseNumber(value);
+              break;
+            case 'less than':
+              match = _parseNumber(docValue.toString()) < _parseNumber(value);
+              break;
+            default:
+              match = false;
+              break;
+          }
+          if (!match) {
+            break;
+          }
         }
-
-        if (docValue == null) {
-          return false; // Skip documents that don't have the filter column
+        // Apply date filters only if regular filters match
+        if (match &&
+            _selectedDateFilterColumn != null &&
+            _selectedDateFilterOperator != null &&
+            _dateFilterController.text.isNotEmpty) {
+          final dateColumn = _selectedDateFilterColumn!;
+          final dateOperator = _selectedDateFilterOperator!;
+          final dateValue = _dateFilterController.text;
+          dynamic docDate;
+          if (doc.containsKey(dateColumn)) {
+            docDate = doc[dateColumn];
+          } else if (doc.containsKey('fields') && doc['fields'] is Map) {
+            final fields = doc['fields'] as Map;
+            if (fields.containsKey(dateColumn)) {
+              docDate = fields[dateColumn];
+            }
+          }
+          if (docDate != null) {
+            try {
+              final parsedDocDate = DateTime.parse(docDate.toString());
+              switch (dateOperator) {
+                case 'equals':
+                  final parsedFilterDate = DateTime.parse(dateValue);
+                  match = parsedDocDate == parsedFilterDate;
+                  break;
+                case 'less than':
+                  final parsedFilterDate = DateTime.parse(dateValue);
+                  match = parsedDocDate.isBefore(parsedFilterDate);
+                  break;
+                case 'greater than':
+                  final parsedFilterDate = DateTime.parse(dateValue);
+                  match = parsedDocDate.isAfter(parsedFilterDate);
+                  break;
+                case 'between':
+                  if (_dateFilterController2.text.isNotEmpty) {
+                    final parsedFilterDate1 = DateTime.parse(dateValue);
+                    final parsedFilterDate2 =
+                        DateTime.parse(_dateFilterController2.text);
+                    match = parsedDocDate.isAfter(parsedFilterDate1) &&
+                        parsedDocDate.isBefore(parsedFilterDate2);
+                  } else {
+                    match = false;
+                  }
+                  break;
+                default:
+                  match = false;
+                  break;
+              }
+            } catch (e) {
+              match = false;
+            }
+          } else {
+            match = false;
+          }
         }
-
-        return docValue.toString().toLowerCase().contains(filterValue);
+        return match;
       }).toList();
       _filterKey++;
     });
@@ -311,6 +427,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
           }
         }
       }
+      _filteredDocuments = List.from(_documents);
       _filterDocuments();
     });
   }
@@ -318,6 +435,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
   Future<void> _addNewGeminiColumn() async {
     String? prompt;
     String? newColumnName;
+    String? selectedGeminiColumn;
 
     await showDialog(
       context: context,
@@ -329,6 +447,31 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedGeminiColumn,
+                    hint: Text('Select a context column'),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedGeminiColumn = newValue;
+                      });
+                    },
+                    items: [
+                      DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('Take All'),
+                      ),
+                      DropdownMenuItem<String>(
+                        value: '__full_row__',
+                        child: Text('Take Full Row'),
+                      ),
+                      ..._columns.map<DropdownMenuItem<String>>((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                    ],
+                  ),
                   TextFormField(
                     decoration: InputDecoration(labelText: 'Gemini Prompt'),
                     onChanged: (value) => prompt = value,
@@ -350,7 +493,8 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
               onPressed: () {
                 if (prompt != null && newColumnName != null) {
                   Navigator.pop(context);
-                  _createGeminiColumn(prompt!, newColumnName!);
+                  _createGeminiColumn(
+                      prompt!, newColumnName!, selectedGeminiColumn);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -367,7 +511,8 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
     );
   }
 
-  Future<void> _createGeminiColumn(String prompt, String newColumnName) async {
+  Future<void> _createGeminiColumn(
+      String prompt, String newColumnName, String? selectedGeminiColumn) async {
     setState(() {
       _loading = true;
     });
@@ -377,17 +522,35 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
       final firestore = FirebaseFirestore.instance;
       for (var doc in _documents) {
         String context = '';
-        doc.forEach((key, value) {
-          if (key != 'id') {
-            context += '$key: $value, ';
+        if (selectedGeminiColumn == '__full_row__') {
+          doc.forEach((key, value) {
+            if (key != 'id') {
+              context += '$key: $value, ';
+            }
+          });
+        } else if (selectedGeminiColumn != null) {
+          if (doc.containsKey(selectedGeminiColumn)) {
+            context = '$selectedGeminiColumn: ${doc[selectedGeminiColumn]}, ';
+          } else if (doc.containsKey('fields') && doc['fields'] is Map) {
+            final fields = doc['fields'] as Map;
+            if (fields.containsKey(selectedGeminiColumn)) {
+              context =
+                  '$selectedGeminiColumn: ${fields[selectedGeminiColumn]}, ';
+            }
           }
-        });
+        } else {
+          doc.forEach((key, value) {
+            if (key != 'id') {
+              context += '$key: $value, ';
+            }
+          });
+        }
         final apiKey = widget.geminiApiKey;
         final model =
             gen_ai.GenerativeModel(model: widget.geminiModel, apiKey: apiKey);
         final content = [
           gen_ai.Content.text(
-              '$prompt. The context is: $context. Please provide a single value for the new column.give clean output(no explanation) for a column similar to excel operartion')
+              '$prompt. The context is: $context. Please provide a single value for the new column.')
         ];
         final response = await model.generateContent(content);
         final geminiResponse = response.text?.trim() ?? '';
@@ -407,6 +570,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
         }
       }
       _filteredDocuments = List.from(_documents);
+      _calculateSums();
     } catch (e) {
       print('Error creating Gemini column: $e');
     } finally {
@@ -444,6 +608,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                     }
                   }
                   _filteredDocuments = List.from(_documents);
+                  _calculateSums();
                 });
                 // Delete from Firestore
                 final firestore = FirebaseFirestore.instance;
@@ -485,6 +650,28 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
     }
   }
 
+  void _addFilterCondition() {
+    if (_selectedFilterColumn != null &&
+        _selectedFilterOperator != null &&
+        _filterValueController.text.isNotEmpty) {
+      setState(() {
+        _filterConditions.add(FilterCondition(
+          column: _selectedFilterColumn!,
+          operator: _selectedFilterOperator!,
+          value: _filterValueController.text,
+        ));
+        _filterValueController.clear();
+      });
+    }
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _filterConditions.clear();
+      _filteredDocuments = List.from(_documents);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -493,114 +680,342 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
       ),
       body: _loading
           ? Center(child: CircularProgressIndicator())
-          : _documents.isEmpty
-              ? Center(child: Text('No documents found.'))
-              : Column(
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed: _addNewCalculatedColumn,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color.fromARGB(
+                                255, 0, 65, 97), // Button color
+                            foregroundColor: Colors.white, // Text color
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(8), // Rounded corners
+                            ),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12), // Padding
+                          ),
+                          child: Text('Add Calculated Column'),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _addNewGeminiColumn,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color.fromARGB(
+                                255, 39, 128, 17), // Button color
+                            foregroundColor: Colors.white, // Text color
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(8), // Rounded corners
+                            ),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12), // Padding
+                          ),
+                          child: Text('Add Gemini Column'),
+                        ),
+                      ],
+                    ),
+                    // Filter UI
                     Padding(
                       padding: const EdgeInsets.all(8.0),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _filterController,
-                              decoration: InputDecoration(
-                                  labelText: 'Filter by $_filterColumn'),
-                              onChanged: (_) => _filterDocuments(),
-                            ),
+                          Row(
+                            children: [
+                              DropdownButton<String>(
+                                hint: Text('Select Column'),
+                                value: _selectedFilterColumn,
+                                items: _columns
+                                    .map((column) => DropdownMenuItem(
+                                          value: column,
+                                          child: Text(column),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedFilterColumn = value;
+                                  });
+                                },
+                              ),
+                              SizedBox(width: 8),
+                              DropdownButton<String>(
+                                hint: Text('Select Operator'),
+                                value: _selectedFilterOperator,
+                                items: [
+                                  'equals',
+                                  'contains',
+                                  'greater than',
+                                  'less than',
+                                ]
+                                    .map((operator) => DropdownMenuItem(
+                                          value: operator,
+                                          child: Text(operator),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedFilterOperator = value;
+                                  });
+                                },
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _filterValueController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Filter Value',
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: _addFilterCondition,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor:
+                                      Colors.blueGrey, // Button color
+                                  foregroundColor: Colors.white, // Text color
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                        8), // Rounded corners
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12), // Padding
+                                ),
+                                child: Text('Add Filter'),
+                              ),
+                            ],
                           ),
-                          DropdownButton<String>(
-                            value: _filterColumn.isEmpty ? null : _filterColumn,
-                            hint: Text('Select a column'),
-                            onChanged: (String? newValue) {
-                              setState(() {
-                                _filterColumn = newValue ?? '';
-                                _filterDocuments();
-                              });
-                            },
-                            items: _columns
-                                .map<DropdownMenuItem<String>>((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
-                            }).toList(),
+                          SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8.0,
+                            children: _filterConditions
+                                .map((condition) => Chip(
+                                      label: Text(
+                                          '${condition.column} ${condition.operator} ${condition.value}'),
+                                    ))
+                                .toList(),
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            children: [
+                              DropdownButton<String>(
+                                hint: Text('Select Date Column'),
+                                value: _selectedDateFilterColumn,
+                                items: _columns
+                                    .map((column) => DropdownMenuItem(
+                                          value: column,
+                                          child: Text(column),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedDateFilterColumn = value;
+                                  });
+                                },
+                              ),
+                              SizedBox(width: 8),
+                              DropdownButton<String>(
+                                hint: Text('Select Date Operator'),
+                                value: _selectedDateFilterOperator,
+                                items: [
+                                  'equals',
+                                  'less than',
+                                  'greater than',
+                                  'between',
+                                ]
+                                    .map((operator) => DropdownMenuItem(
+                                          value: operator,
+                                          child: Text(operator),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedDateFilterOperator = value;
+                                  });
+                                },
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _dateFilterController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Filter by Date',
+                                    hintText: 'YYYY-MM-DD',
+                                  ),
+                                ),
+                              ),
+                              if (_selectedDateFilterOperator == 'between')
+                                SizedBox(width: 8),
+                              if (_selectedDateFilterOperator == 'between')
+                                Expanded(
+                                  child: TextField(
+                                    controller: _dateFilterController2,
+                                    decoration: InputDecoration(
+                                      labelText: 'Filter by Date 2',
+                                      hintText: 'YYYY-MM-DD',
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            children: [
+                              ElevatedButton(
+                                onPressed: _filterDocuments,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color.fromARGB(
+                                      255, 1, 58, 52), // Button color
+                                  foregroundColor: Colors.white, // Text color
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                        8), // Rounded corners
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12), // Padding
+                                ),
+                                child: Text('Apply Filters'),
+                              ),
+                              SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: _clearFilters,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color.fromARGB(
+                                      255, 126, 53, 53), // Button color
+                                  foregroundColor: Colors.white, // Text color
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                        8), // Rounded corners
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12), // Padding
+                                ),
+                                child: Text('Clear Filters'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        key: ValueKey(_filterKey),
-                        columns: _columns
-                            .map((column) => DataColumn(
-                                  label: Row(
-                                    children: [
-                                      Text(column),
-                                      Checkbox(
-                                        value:
-                                            _selectedColumns[column] ?? false,
-                                        onChanged: (value) {
-                                          setState(() {
-                                            _selectedColumns[column] = value!;
-                                            _calculateSums();
-                                          });
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: Icon(Icons.close),
-                                        onPressed: () => _deleteColumn(column),
-                                      ),
-                                    ],
-                                  ),
-                                ))
-                            .toList(),
-                        rows: _filteredDocuments
-                            .map((doc) => DataRow(
-                                    cells: _columns.map((column) {
-                                  if (column == 'fileUrl' &&
-                                      doc[column] != null) {
-                                    return DataCell(
-                                      InkWell(
-                                        child: Text(
-                                          'View File',
-                                          style: TextStyle(
-                                              color: Colors.blue,
-                                              decoration:
-                                                  TextDecoration.underline),
-                                        ),
-                                        onTap: () => _launchURL(doc[column]),
-                                      ),
-                                    );
-                                  } else if (doc.containsKey('fields') &&
-                                      doc['fields'] is Map) {
-                                    final fields = doc['fields'] as Map;
-                                    if (fields.containsKey(column)) {
-                                      return DataCell(
-                                        TextFormField(
-                                          initialValue:
-                                              fields[column]?.toString() ?? '',
-                                          onFieldSubmitted: (newValue) {
-                                            _updateDocument(
-                                                doc['id'], column, newValue);
-                                          },
-                                        ),
-                                      );
-                                    }
-                                  }
-                                  return DataCell(
-                                    TextFormField(
-                                      initialValue:
-                                          doc[column]?.toString() ?? '',
-                                      onFieldSubmitted: (newValue) {
-                                        _updateDocument(
-                                            doc['id'], column, newValue);
-                                      },
+                    // Horizontal Scroll Handle
+                    SizedBox(
+                      child: Scrollbar(
+                        controller: _horizontalScrollController,
+                        child: SingleChildScrollView(
+                          controller: _horizontalScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: IntrinsicWidth(
+                            child: Theme(
+                              data: Theme.of(context).copyWith(
+                                  cardTheme: CardTheme(
+                                    color: Colors.grey[100],
+                                    elevation: 2,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                  );
-                                }).toList()))
-                            .toList(),
+                                  ),
+                                  dataTableTheme: DataTableThemeData(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.grey[300]!,
+                                        width: 1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    headingRowHeight: 40,
+                                    dataRowHeight: 60,
+                                    headingTextStyle: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  )),
+                              child: DataTable(
+                                key: ValueKey(_filterKey),
+                                columns: _columns
+                                    .map((column) => DataColumn(
+                                          label: Row(
+                                            children: [
+                                              Text(column),
+                                              Checkbox(
+                                                value:
+                                                    _selectedColumns[column] ??
+                                                        false,
+                                                onChanged: (value) {
+                                                  setState(() {
+                                                    _selectedColumns[column] =
+                                                        value!;
+                                                    _calculateSums();
+                                                  });
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: Icon(Icons.close),
+                                                onPressed: () =>
+                                                    _deleteColumn(column),
+                                              ),
+                                            ],
+                                          ),
+                                        ))
+                                    .toList(),
+                                rows: _filteredDocuments
+                                    .map((doc) => DataRow(
+                                            cells: _columns.map((column) {
+                                          if (column == 'fileUrl' &&
+                                              doc[column] != null) {
+                                            return DataCell(
+                                              InkWell(
+                                                child: Text(
+                                                  'View File',
+                                                  style: TextStyle(
+                                                      color: Colors.blue,
+                                                      decoration: TextDecoration
+                                                          .underline),
+                                                ),
+                                                onTap: () =>
+                                                    _launchURL(doc[column]),
+                                              ),
+                                            );
+                                          } else if (doc
+                                                  .containsKey('fields') &&
+                                              doc['fields'] is Map) {
+                                            final fields = doc['fields'] as Map;
+                                            if (fields.containsKey(column)) {
+                                              return DataCell(
+                                                TextFormField(
+                                                  initialValue: fields[column]
+                                                          ?.toString() ??
+                                                      '',
+                                                  onFieldSubmitted: (newValue) {
+                                                    _updateDocument(doc['id'],
+                                                        column, newValue);
+                                                  },
+                                                ),
+                                              );
+                                            }
+                                          }
+                                          return DataCell(
+                                            TextFormField(
+                                              initialValue:
+                                                  doc[column]?.toString() ?? '',
+                                              onFieldSubmitted: (newValue) {
+                                                _updateDocument(doc['id'],
+                                                    column, newValue);
+                                              },
+                                            ),
+                                          );
+                                        }).toList()))
+                                    .toList(),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     if (_columnSums.isNotEmpty)
@@ -614,16 +1029,22 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                               .toList(),
                         ),
                       ),
-                    ElevatedButton(
-                      onPressed: _addNewCalculatedColumn,
-                      child: Text('Add Calculated Column'),
-                    ),
-                    ElevatedButton(
-                      onPressed: _addNewGeminiColumn,
-                      child: Text('Add Gemini Column'),
-                    ),
                   ],
                 ),
+              ),
+            ),
     );
   }
+}
+
+class FilterCondition {
+  String column;
+  String operator;
+  String value;
+
+  FilterCondition({
+    required this.column,
+    required this.operator,
+    required this.value,
+  });
 }

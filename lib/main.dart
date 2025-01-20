@@ -27,6 +27,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'view_documents_page.dart'; // Import the new page
+import 'package:firebase_auth/firebase_auth.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,11 +43,21 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   String _geminiApiKey = '';
   String _geminiModel = '';
+  bool _isLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
+    _checkLoginStatus();
     _loadApiKeyAndModel();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      setState(() {
+        _isLoggedIn = user != null;
+      });
+    });
   }
 
   Future<void> _loadApiKeyAndModel() async {
@@ -79,10 +90,224 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Firestore Dynamic Field Adder',
-      home: HomePage(
-        geminiApiKey: _geminiApiKey,
-        geminiModel: _geminiModel,
-      ), // Use the new HomePage widget
+      home: _isLoggedIn
+          ? HomePage(
+              geminiApiKey: _geminiApiKey,
+              geminiModel: _geminiModel,
+            )
+          : LoginPage(),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.light,
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blueGrey[700],
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+          iconTheme: IconThemeData(color: Colors.white),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueGrey[700],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            textStyle: TextStyle(fontSize: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[400]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.blue),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[600]),
+          floatingLabelStyle: TextStyle(color: Colors.blue),
+        ),
+        iconTheme: IconThemeData(color: Colors.blueGrey[700]),
+      ),
+      darkTheme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.dark,
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blueGrey[900],
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+          iconTheme: IconThemeData(color: Colors.white),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueGrey[900],
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            textStyle: TextStyle(fontSize: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[700]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.blue),
+          ),
+          labelStyle: TextStyle(color: Colors.grey[400]),
+          floatingLabelStyle: TextStyle(color: Colors.blue),
+        ),
+        iconTheme: IconThemeData(color: Colors.blueGrey[900]),
+      ),
+      themeMode: ThemeMode.system,
+    );
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  @override
+  _LoginPageState createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String _errorMessage = '';
+
+  Future<void> _signInWithEmailAndPassword() async {
+    if (_formKey.currentState!.validate()) {
+      try {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      } on FirebaseAuthException catch (e) {
+        setState(() {
+          _errorMessage = e.message ?? 'An error occurred';
+        });
+      }
+    }
+  }
+
+  Future<void> _signUpWithEmailAndPassword() async {
+    if (_formKey.currentState!.validate()) {
+      try {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      } on FirebaseAuthException catch (e) {
+        setState(() {
+          _errorMessage = e.message ?? 'An error occurred';
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Login'),
+        backgroundColor: Colors.blueGrey[700],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                TextFormField(
+                  controller: _emailController,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    border: OutlineInputBorder(),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your password';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _signInWithEmailAndPassword,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  child: Text('Login'),
+                ),
+                SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _signUpWithEmailAndPassword,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  child: Text('Sign Up'),
+                ),
+                if (_errorMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(
+                      _errorMessage,
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -112,7 +337,7 @@ class _HomePageState extends State<HomePage> {
     _service = DynamicFieldAdderService(
       formKey: GlobalKey<FormState>(),
       collectionNameController: TextEditingController(),
-      documentNameController: TextEditingController(),
+      documentNameController: null,
       fieldNameControllers: [],
       fieldValueControllers: [],
       templates: _templates,
@@ -157,58 +382,99 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Gemini Demo'),
+        title: Text('AI Accountant'),
+        backgroundColor: Colors.blueGrey[700], // AppBar background color
       ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => DynamicFieldAdder()),
-              );
-            },
-            child: Text('Add Template'),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => DynamicFieldAdder(
+                              geminiApiKey: widget.geminiApiKey,
+                              geminiModel: widget.geminiModel,
+                            )),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue, // Button color
+                  foregroundColor: Colors.white, // Text color
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8), // Rounded corners
+                  ),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12), // Padding
+                ),
+                child: Text('Add Template'),
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _processImage,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green, // Button color
+                  foregroundColor: Colors.white, // Text color
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8), // Rounded corners
+                  ),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12), // Padding
+                ),
+                child: Text('Process Image or PDF'),
+              ),
+              SizedBox(height: 16),
+              DropdownButton<String>(
+                value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
+                hint: Text('Select a template to view documents'),
+                items: _templates.map((template) {
+                  return DropdownMenuItem<String>(
+                    value: template['name'],
+                    child: Text(template['name']),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedTemplate = value!;
+                  });
+                },
+              ),
+              SizedBox(height: 16),
+              if (_selectedTemplate.isNotEmpty)
+                ElevatedButton(
+                  onPressed: () => _viewDocuments(_selectedTemplate),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal, // Button color
+                    foregroundColor: Colors.white, // Text color
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8), // Rounded corners
+                    ),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12), // Padding
+                  ),
+                  child: Text('View Documents'),
+                )
+            ],
           ),
-          ElevatedButton(
-            onPressed: _processImage,
-            child: Text('Process Image or PDF'),
-          ),
-          DropdownButton<String>(
-            value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
-            hint: Text('Select a template'),
-            items: _templates.map((template) {
-              return DropdownMenuItem<String>(
-                value: template['name'],
-                child: Text(template['name']),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedTemplate = value!;
-              });
-            },
-          ),
-          if (_selectedTemplate.isNotEmpty)
-            ElevatedButton(
-              onPressed: () => _viewDocuments(_selectedTemplate),
-              child: Text('View Documents'),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Gemini Output:\n$_geminiOutput',
-              textAlign: TextAlign.left,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class DynamicFieldAdder extends StatefulWidget {
+  final String geminiApiKey;
+  final String geminiModel;
+
+  DynamicFieldAdder({
+    required this.geminiApiKey,
+    required this.geminiModel,
+  });
+
   @override
   _DynamicFieldAdderState createState() => _DynamicFieldAdderState();
 }
@@ -223,17 +489,14 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
   final _templateNameController = TextEditingController();
   late DynamicFieldAdderService _service;
   String _geminiOutput = '';
-  String _geminiApiKey = ''; // Store the API key
-  String _geminiModel = ''; // Store the model name
 
   @override
   void initState() {
     super.initState();
-    _loadApiKey(); // Load the API key
     _service = DynamicFieldAdderService(
       formKey: _formKey,
       collectionNameController: _collectionNameController,
-      documentNameController: _documentNameController,
+      documentNameController: null,
       fieldNameControllers: _fieldNameControllers,
       fieldValueControllers: _fieldValueControllers,
       templates: _templates,
@@ -242,25 +505,6 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
     );
     _service.addField(); // Add initial field
     _service.loadTemplates();
-  }
-
-  Future<void> _loadApiKey() async {
-    try {
-      final configString = await rootBundle.loadString('assets/.config');
-      final lines = configString.split('\n');
-      for (final line in lines) {
-        if (line.startsWith('GEMINI_API_KEY=')) {
-          _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
-        } else if (line.startsWith('MODEL_NAME=')) {
-          _geminiModel = line.substring('MODEL_NAME='.length).trim();
-        }
-      }
-      if (_geminiApiKey.isEmpty) {
-        print('GEMINI_API_KEY not found in .config file');
-      }
-    } catch (e) {
-      print('Error loading .config file: $e');
-    }
   }
 
   @override
@@ -275,87 +519,6 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
       controller.dispose();
     }
     super.dispose();
-  }
-
-  Future<void> _processImage() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
-    );
-
-    if (result != null && result.files.isNotEmpty) {
-      setState(() {
-        _geminiOutput = 'Processing Images...';
-      });
-      try {
-        final apiKey = _geminiApiKey;
-        final model =
-            gen_ai.GenerativeModel(model: _geminiModel, apiKey: apiKey);
-
-        // Build the JSON template string from the fields
-        String jsonTemplate = '{';
-        for (int i = 0; i < _fieldNameControllers.length; i++) {
-          final fieldName = _fieldNameControllers[i].text.trim();
-          final fieldValue = _fieldValueControllers[i].text.trim();
-          if (fieldName.isNotEmpty) {
-            jsonTemplate += '"$fieldName": "$fieldValue",';
-          }
-        }
-        // Remove the trailing comma if it exists
-        if (jsonTemplate.endsWith(',')) {
-          jsonTemplate = jsonTemplate.substring(0, jsonTemplate.length - 1);
-        }
-        jsonTemplate += '}';
-
-        List<gen_ai.Part> parts = [
-          gen_ai.TextPart(
-              """Extract the following information from this invoice and format it exactly as shown in the JSON template below:
-
-            $jsonTemplate
-            """)
-        ];
-
-        for (final file in result.files) {
-          final imageBytes = file.bytes;
-          if (imageBytes == null) {
-            setState(() {
-              _geminiOutput = 'Error reading image bytes.';
-            });
-            return;
-          }
-          img.Image? image = img.decodeImage(imageBytes);
-          if (image == null) {
-            setState(() {
-              _geminiOutput = 'Error decoding image.';
-            });
-            return;
-          }
-          Uint8List encodedImageBytes = img.encodeJpg(image);
-          parts.add(gen_ai.DataPart('image/jpeg', encodedImageBytes));
-        }
-
-        final content = [gen_ai.Content.multi(parts)];
-
-        final response = await model.generateContent(content);
-        String responseText = response.text ?? '';
-        responseText = responseText.trim();
-        responseText =
-            responseText.replaceAll('```json', '').replaceAll('```', '');
-        int startIdx = responseText.indexOf('{');
-        int endIdx = responseText.lastIndexOf('}') + 1;
-        if (startIdx != -1 && endIdx != -1) {
-          responseText = responseText.substring(startIdx, endIdx);
-        }
-        final jsonOutput = json.decode(responseText);
-        setState(() {
-          _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
-        });
-      } catch (e) {
-        setState(() {
-          _geminiOutput = 'Error processing image: $e';
-        });
-      }
-    }
   }
 
   @override
@@ -377,11 +540,35 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
               _service.addDynamicFields,
               _service.saveTemplate,
               _service.applyTemplate,
+              () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.image,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await _service.generateTemplateFromImage(
+                        fileBytes, widget.geminiApiKey, widget.geminiModel);
+                  }
+                }
+              },
+              () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['pdf'],
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await _service.generateTemplateFromPdf(
+                        fileBytes, widget.geminiApiKey, widget.geminiModel);
+                  }
+                }
+              },
+              _service.removeField,
             ),
-          ),
-          ElevatedButton(
-            onPressed: _processImage,
-            child: Text('Process Image with Gemini'),
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -568,17 +755,6 @@ class _ImageProcessorPageState extends State<ImageProcessorPage> {
                       : null,
                 );
               },
-            ),
-          ),
-          ElevatedButton(
-            onPressed: _processImage,
-            child: Text('Process Image with Selected Template'),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Gemini Output:\n$_geminiOutput',
-              textAlign: TextAlign.left,
             ),
           ),
         ],
