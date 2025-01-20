@@ -152,7 +152,13 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
       String docId, String column, dynamic newValue) async {
     try {
       final firestore = FirebaseFirestore.instance;
-      final docRef = firestore.collection(widget.templateName).doc(docId);
+      final docRef = firestore
+          .collection('users')
+          .doc(FirebaseAuth.instance.currentUser?.uid)
+          .collection('data')
+          .doc(widget.templateName)
+          .collection('entries')
+          .doc(docId);
 
       if (column == 'fileUrl') {
         await docRef.update({column: newValue});
@@ -613,8 +619,13 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                 // Delete from Firestore
                 final firestore = FirebaseFirestore.instance;
                 for (var doc in _documents) {
-                  final docRef =
-                      firestore.collection(widget.templateName).doc(doc['id']);
+                  final docRef = firestore
+                      .collection('users')
+                      .doc(FirebaseAuth.instance.currentUser?.uid)
+                      .collection('data')
+                      .doc(widget.templateName)
+                      .collection('entries')
+                      .doc(doc['id']);
                   if (doc.containsKey('fields')) {
                     await docRef.update({
                       'fields': doc['fields'],
