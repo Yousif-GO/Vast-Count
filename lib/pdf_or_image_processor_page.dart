@@ -31,6 +31,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart'
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:mime/mime.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -43,6 +44,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'view_documents_page.dart';
 
+class Config {
+  String apiKey = '';
+  String modelName = '';
+}
+
 class PdfOrImageProcessorPage extends StatefulWidget {
   @override
   _PdfOrImageProcessorPageState createState() =>
@@ -51,9 +57,11 @@ class PdfOrImageProcessorPage extends StatefulWidget {
 // ... existing code ...
 
 class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
+  // Hardcoded API key and model name
+  String _geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  String _geminiModel = 'gemini-1.5-flash';
+  // No need to load API key here
   String _geminiOutput = '';
-  String _geminiApiKey = '';
-  String _geminiModel = '';
   List<Map<String, dynamic>> _templates = [];
   Map<String, dynamic>? _selectedTemplate;
   late DynamicFieldAdderService _service;
@@ -71,7 +79,6 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   @override
   void initState() {
     super.initState();
-    _loadApiKeyAndModel();
     _service = DynamicFieldAdderService(
       formKey: GlobalKey<FormState>(),
       collectionNameController: TextEditingController(),
@@ -89,28 +96,6 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _loadTemplates();
-  }
-
-  Future<void> _loadApiKeyAndModel() async {
-    try {
-      final configString = await rootBundle.loadString('assets/.config');
-      final lines = configString.split('\n');
-      for (final line in lines) {
-        if (line.startsWith('GEMINI_API_KEY=')) {
-          _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
-        } else if (line.startsWith('MODEL_NAME=')) {
-          _geminiModel = line.substring('MODEL_NAME='.length).trim();
-        }
-      }
-      if (_geminiApiKey.isEmpty) {
-        print('GEMINI_API_KEY not found in .config file');
-      }
-      if (_geminiModel.isEmpty) {
-        print('MODEL_NAME not found in .config file');
-      }
-    } catch (e) {
-      print('Error loading .config file: $e');
-    }
   }
 
   Future<void> _loadTemplates() async {

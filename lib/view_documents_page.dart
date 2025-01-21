@@ -8,14 +8,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class ViewDocumentsPage extends StatefulWidget {
   final String templateName;
-  final String geminiApiKey;
-  final String geminiModel;
+  // Hardcoded API key and model name
+  final String geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  final String geminiModel = 'gemini-1.5-flash';
 
   ViewDocumentsPage({
+    Key? key,
     required this.templateName,
-    required this.geminiApiKey,
-    required this.geminiModel,
-  });
+  }) : super(key: key);
 
   @override
   _ViewDocumentsPageState createState() => _ViewDocumentsPageState();

@@ -28,6 +28,13 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'view_documents_page.dart'; // Import the new page
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
+
+class Config {
+  String apiKey = '';
+  String modelName = '';
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,14 +49,15 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _isLoggedIn = false;
-  String _geminiApiKey = '';
-  String _geminiModel = '';
+  // Hardcoded API key and model name
+  String _geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  String _geminiModel = 'gemini-1.5-flash';
 
   @override
   void initState() {
     super.initState();
     _checkLoginStatus();
-    _loadApiKey();
+    // No need to load API key here
   }
 
   Future<void> _checkLoginStatus() async {
@@ -58,25 +66,6 @@ class _MyAppState extends State<MyApp> {
         _isLoggedIn = user != null;
       });
     });
-  }
-
-  Future<void> _loadApiKey() async {
-    try {
-      final configString = await rootBundle.loadString('assets/.config');
-      final lines = configString.split('\n');
-      for (final line in lines) {
-        if (line.startsWith('GEMINI_API_KEY=')) {
-          _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
-        } else if (line.startsWith('MODEL_NAME=')) {
-          _geminiModel = line.substring('MODEL_NAME='.length).trim();
-        }
-      }
-      if (_geminiApiKey.isEmpty) {
-        print('GEMINI_API_KEY not found in .config file');
-      }
-    } catch (e) {
-      print('Error loading .config file: $e');
-    }
   }
 
   Future<bool> _isEmailVerified() async {
@@ -388,8 +377,6 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
           builder: (context) => ViewDocumentsPage(
                 templateName: templateName,
-                geminiApiKey: widget.geminiApiKey,
-                geminiModel: widget.geminiModel,
               )),
     );
   }

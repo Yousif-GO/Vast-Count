@@ -1,5 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:ai_accountant/services/dynamic_field_adder_service.dart';
+
+class DynamicFieldAdder extends StatefulWidget {
+  // Hardcoded API key and model name
+  final String geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  final String geminiModel = 'gemini-1.5-flash';
+
+  DynamicFieldAdder({
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  _DynamicFieldAdderState createState() => _DynamicFieldAdderState();
+}
+
+class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
+  @override
+  Widget build(BuildContext context) {
+    // TODO: implement build
+    throw UnimplementedError();
+  }
+}
 
 Widget buildDynamicFieldAdderUI(
   BuildContext context,
