@@ -191,8 +191,11 @@ class DynamicFieldAdderService {
       },
     );
     try {
-      final model =
-          gen_ai.GenerativeModel(model: geminiModel, apiKey: geminiApiKey);
+      final model = gen_ai.GenerativeModel(
+          model: geminiModel,
+          apiKey: geminiApiKey,
+          generationConfig:
+              gen_ai.GenerationConfig(responseMimeType: 'application/json'));
 
       List<gen_ai.Part> parts = [
         gen_ai.TextPart(
@@ -273,8 +276,11 @@ class DynamicFieldAdderService {
       },
     );
     try {
-      final model =
-          gen_ai.GenerativeModel(model: geminiModel, apiKey: geminiApiKey);
+      final model = gen_ai.GenerativeModel(
+          model: geminiModel,
+          apiKey: geminiApiKey,
+          generationConfig:
+              gen_ai.GenerationConfig(responseMimeType: 'application/json'));
 
       List<gen_ai.Part> parts = [
         gen_ai.TextPart(

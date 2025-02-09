@@ -43,6 +43,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'view_documents_page.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 class Config {
   String apiKey = '';
@@ -510,8 +511,11 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
     while (retries < 3) {
       try {
         final apiKey = _geminiApiKey;
-        final model =
-            gen_ai.GenerativeModel(model: _geminiModel, apiKey: apiKey);
+        final model = gen_ai.GenerativeModel(
+            model: _geminiModel,
+            apiKey: apiKey,
+            generationConfig:
+                GenerationConfig(responseMimeType: 'application/json'));
 
         // Build the JSON template string from the selected template
         String jsonTemplate = '{';
@@ -613,8 +617,11 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
     while (retries < 3) {
       try {
         final apiKey = _geminiApiKey;
-        final model =
-            gen_ai.GenerativeModel(model: _geminiModel, apiKey: apiKey);
+        final model = gen_ai.GenerativeModel(
+            model: _geminiModel,
+            apiKey: apiKey,
+            generationConfig:
+                GenerationConfig(responseMimeType: 'application/json'));
 
         // Build the JSON template string from the selected template
         String jsonTemplate = '{';

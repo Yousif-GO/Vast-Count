@@ -5,6 +5,12 @@ import 'package:intl/intl.dart';
 import 'package:function_tree/function_tree.dart';
 import 'package:google_generative_ai/google_generative_ai.dart' as gen_ai;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:path_provider/path_provider.dart';
+import 'dart:io'; // Not used on the web
+import 'dart:html' as html; // For web download:
 
 class ViewDocumentsPage extends StatefulWidget {
   final String templateName;
@@ -551,9 +557,9 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
             }
           });
         }
-        final apiKey = widget.geminiApiKey;
+        final apiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
         final model =
-            gen_ai.GenerativeModel(model: widget.geminiModel, apiKey: apiKey);
+            gen_ai.GenerativeModel(model: 'gemini-1.5-flash', apiKey: apiKey);
         final content = [
           gen_ai.Content.text(
               '$prompt. The context is: $context. Please provide a single value for the new column.')
@@ -561,7 +567,13 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
         final response = await model.generateContent(content);
         final geminiResponse = response.text?.trim() ?? '';
         // Update Firestore
-        final docRef = firestore.collection(widget.templateName).doc(doc['id']);
+        final docRef = firestore
+            .collection('users')
+            .doc(FirebaseAuth.instance.currentUser?.uid)
+            .collection('data')
+            .doc(widget.templateName)
+            .collection('entries')
+            .doc(doc['id']);
         Map<String, dynamic> updatedFields = {};
         if (doc.containsKey('fields') && doc['fields'] is Map) {
           updatedFields = Map<String, dynamic>.from(doc['fields']);
@@ -683,11 +695,86 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
     });
   }
 
+  /// Generates CSV content from the table data.
+  String _generateCSVString() {
+    StringBuffer csvBuffer = StringBuffer();
+    // Write header row from _columns.
+    csvBuffer.writeln(_columns.join(","));
+    // Write each row from _filteredDocuments.
+    for (var doc in _filteredDocuments) {
+      List<String> row = [];
+      for (var col in _columns) {
+        dynamic value;
+        if (doc.containsKey('fields') &&
+            doc['fields'] is Map &&
+            (doc['fields'] as Map).containsKey(col)) {
+          value = (doc['fields'] as Map)[col];
+        } else {
+          value = doc[col];
+        }
+        // Escape any double quotes and enclose value in quotes.
+        row.add('"${(value?.toString() ?? "").replaceAll('"', '""')}"');
+      }
+      csvBuffer.writeln(row.join(","));
+    }
+    return csvBuffer.toString();
+  }
+
+  /// Downloads CSV as a file. Uses web blob technique on web;
+  /// otherwise writes to the app's documents directory.
+  Future<void> _downloadCSVFile() async {
+    final csvString = _generateCSVString();
+
+    if (kIsWeb) {
+      // For web: create a blob and trigger a download.
+      final bytes = utf8.encode(csvString);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute("download", "data.csv")
+        ..click();
+      html.Url.revokeObjectUrl(url);
+    } else {
+      // For mobile/desktop: save the file and notify the user.
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = '${directory.path}/data.csv';
+      final file = File(filePath);
+      await file.writeAsString(csvString);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CSV saved to: $filePath')),
+      );
+    }
+  }
+
+  /// Shares the CSV file rather than just its content.
+  /// On web, it will only trigger the download functionality.
+  Future<void> _shareCSVFile() async {
+    if (kIsWeb) {
+      // On web, file sharing isn't supported; fallback to download.
+      await _downloadCSVFile();
+      return;
+    }
+    final csvString = _generateCSVString();
+    final directory = await getTemporaryDirectory();
+    final filePath = '${directory.path}/data.csv';
+    final file = File(filePath);
+    await file.writeAsString(csvString);
+
+    // Share the CSV file using share_plus.
+    await Share.shareXFiles([XFile(filePath)], subject: "Exported CSV Data");
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Documents for ${widget.templateName}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download),
+            onPressed: _downloadCSVFile,
+          ),
+        ],
       ),
       body: _loading
           ? Center(child: CircularProgressIndicator())
@@ -1007,6 +1094,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                                                     _updateDocument(doc['id'],
                                                         column, newValue);
                                                   },
+                                                  focusNode: FocusNode(),
                                                 ),
                                               );
                                             }
@@ -1019,6 +1107,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
                                                 _updateDocument(doc['id'],
                                                     column, newValue);
                                               },
+                                              focusNode: FocusNode(),
                                             ),
                                           );
                                         }).toList()))
