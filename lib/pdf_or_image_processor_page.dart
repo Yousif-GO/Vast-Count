@@ -44,6 +44,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'view_documents_page.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'services/api_key_service.dart';
 
 class Config {
   String apiKey = '';
@@ -59,7 +60,7 @@ class PdfOrImageProcessorPage extends StatefulWidget {
 
 class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   // Hardcoded API key and model name
-  String _geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  String _geminiApiKey = ApiKeyService.getGeminiApiKey();
   String _geminiModel = 'gemini-1.5-flash';
   // No need to load API key here
   String _geminiOutput = '';
@@ -145,20 +146,34 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         return;
       }
 
-      final firestore = FirebaseFirestore.instance;
-      final processedDoc =
-          await firestore.collection('processed').doc('files').get();
-      final processedFiles = processedDoc.exists
-          ? List<String>.from(processedDoc.data()?['files'] ?? [])
-          : <String>[];
+      // Check if user is anonymous
+      final user = FirebaseAuth.instance.currentUser;
+      final isAnonymous = user?.isAnonymous ?? false;
+      List<String> processedFiles = [];
+
+      // Only track processed files for non-anonymous users
+      if (!isAnonymous && user != null) {
+        final firestore = FirebaseFirestore.instance;
+        final processedDoc = await firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('processed')
+            .doc('files')
+            .get();
+
+        processedFiles = processedDoc.exists
+            ? List<String>.from(processedDoc.data()?['files'] ?? [])
+            : <String>[];
+      }
 
       int processedCount = 0;
       int totalFiles = result.files.length;
 
       for (PlatformFile file in result.files) {
-        if (processedFiles.contains(file.name)) {
+        // Skip already processed files only for non-anonymous users
+        if (!isAnonymous && processedFiles.contains(file.name)) {
           print('Skipping already processed file: ${file.name}');
-          continue; // Skip if already processed
+          continue;
         }
 
         setState(() =>
@@ -179,12 +194,16 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
           await _processText(pdfText, file.name);
           processedCount++;
 
-          // Add the file name to the processed list
-          processedFiles.add(file.name);
-          await firestore
-              .collection('processed')
-              .doc('files')
-              .set({'files': processedFiles});
+          // Add the file name to the processed list for non-anonymous users
+          if (!isAnonymous && user != null) {
+            processedFiles.add(file.name);
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('processed')
+                .doc('files')
+                .set({'files': processedFiles});
+          }
         } catch (e) {
           setState(() {
             _status = 'Error processing PDF: $e';
@@ -194,7 +213,9 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         }
       }
       setState(() {
-        _status = 'Finished processing PDFs';
+        _status = processedCount > 0
+            ? 'Finished processing $processedCount PDFs'
+            : 'All PDFs were already processed';
         _processing = false;
       });
     } catch (e) {
@@ -232,20 +253,34 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         return;
       }
 
-      final firestore = FirebaseFirestore.instance;
-      final processedDoc =
-          await firestore.collection('processed').doc('files').get();
-      final processedFiles = processedDoc.exists
-          ? List<String>.from(processedDoc.data()?['files'] ?? [])
-          : <String>[];
+      // Check if user is anonymous
+      final user = FirebaseAuth.instance.currentUser;
+      final isAnonymous = user?.isAnonymous ?? false;
+      List<String> processedFiles = [];
+
+      // Only track processed files for non-anonymous users
+      if (!isAnonymous && user != null) {
+        final firestore = FirebaseFirestore.instance;
+        final processedDoc = await firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('processed')
+            .doc('files')
+            .get();
+
+        processedFiles = processedDoc.exists
+            ? List<String>.from(processedDoc.data()?['files'] ?? [])
+            : <String>[];
+      }
 
       int processedCount = 0;
       int totalFiles = result.files.length;
 
       for (final file in result.files) {
-        if (processedFiles.contains(file.name)) {
+        // Skip already processed files only for non-anonymous users
+        if (!isAnonymous && processedFiles.contains(file.name)) {
           print('Skipping already processed file: ${file.name}');
-          continue; // Skip if already processed
+          continue;
         }
 
         setState(() => _status =
@@ -268,15 +303,21 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         await _processImageBytes(encodedImageBytes, file.name);
         processedCount++;
 
-        // Add the file name to the processed list
-        processedFiles.add(file.name);
-        await firestore
-            .collection('processed')
-            .doc('files')
-            .set({'files': processedFiles});
+        // Add the file name to the processed list for non-anonymous users
+        if (!isAnonymous && user != null) {
+          processedFiles.add(file.name);
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('processed')
+              .doc('files')
+              .set({'files': processedFiles});
+        }
       }
       setState(() {
-        _status = 'Finished processing images';
+        _status = processedCount > 0
+            ? 'Finished processing $processedCount images'
+            : 'All images were already processed';
         _processing = false;
       });
     } catch (e) {
@@ -531,13 +572,15 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
 
         List<gen_ai.Part> parts = [
           gen_ai.TextPart(
-              """Extract the following information from this invoice and format it exactly as shown in the JSON template below:
+              """Extract all instances of the following information from this document and format it as a JSON array of objects. Each object should follow this template:
 
-            $jsonTemplate
+                $jsonTemplate
 
-            The text is:
-            $text
-            """)
+                If there are multiple entries/rows in the document, extract each one as a separate object in the array. If there is only one entry, still return it as an array with a single object.
+
+                The text is:
+                $text
+                """)
         ];
 
         final content = [gen_ai.Content.multi(parts)];
@@ -547,27 +590,49 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         responseText = responseText.trim();
         responseText =
             responseText.replaceAll('```json', '').replaceAll('```', '');
-        int startIdx = responseText.indexOf('{');
-        int endIdx = responseText.lastIndexOf('}') + 1;
-        if (startIdx != -1 && endIdx != -1) {
-          responseText = responseText.substring(startIdx, endIdx);
-        }
+
+        // Check if the response is an array or a single object
+        int startArrayIdx = responseText.indexOf('[');
+        int endArrayIdx = responseText.lastIndexOf(']') + 1;
+        int startObjIdx = responseText.indexOf('{');
+        int endObjIdx = responseText.lastIndexOf('}') + 1;
+
         dynamic jsonOutput;
+
         try {
-          jsonOutput = json.decode(responseText);
-        } catch (e) {
-          try {
-            jsonOutput = json.decode(responseText);
-          } catch (e) {
-            setState(() {
-              _geminiOutput =
-                  'Error decoding JSON: $e\nRaw Response: $responseText';
-            });
-            return;
+          if (startArrayIdx != -1 &&
+              endArrayIdx != -1 &&
+              startArrayIdx < endArrayIdx) {
+            // It's an array format
+            String jsonArrayStr =
+                responseText.substring(startArrayIdx, endArrayIdx);
+            jsonOutput = json.decode(jsonArrayStr);
+          } else if (startObjIdx != -1 && endObjIdx != -1) {
+            // It's a single object, wrap it in an array
+            String jsonObjStr = responseText.substring(startObjIdx, endObjIdx);
+            jsonOutput = [json.decode(jsonObjStr)];
+          } else {
+            throw FormatException('Could not find valid JSON in response');
           }
+        } catch (e) {
+          setState(() {
+            _geminiOutput =
+                'Error decoding JSON: $e\nRaw Response: $responseText';
+          });
+          retries++;
+          if (retries < 3) {
+            await Future.delayed(Duration(seconds: 1));
+            continue;
+          }
+          return;
         }
+
+        // Ensure jsonOutput is a List
+        List<dynamic> jsonList = jsonOutput is List ? jsonOutput : [jsonOutput];
+
         setState(() {
-          _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
+          _geminiOutput = 'Found ${jsonList.length} entries:\n\n' +
+              JsonEncoder.withIndent('  ').convert(jsonList);
         });
 
         // Upload to Firebase Storage
@@ -579,24 +644,42 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         final storageSnapshot = await storageUploadTask;
         final downloadUrl = await storageSnapshot.ref.getDownloadURL();
 
-        // Save to Firestore
+        // Save to Firestore - now save each entry separately
         final collectionName = _selectedTemplate!['name'] as String;
         final firestore = FirebaseFirestore.instance;
-        if (userId != null) {
-          await firestore
-              .collection('users')
-              .doc(userId)
-              .collection('data')
-              .doc(collectionName)
-              .collection('entries')
-              .add({...jsonOutput, 'fileUrl': downloadUrl});
-        } else {
-          await firestore
-              .collection('data')
-              .doc(collectionName)
-              .collection('entries')
-              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        final batch = firestore.batch();
+
+        for (var entry in jsonList) {
+          if (entry is Map<String, dynamic>) {
+            // Add file URL to each entry
+            entry['fileUrl'] = downloadUrl;
+
+            // Create a reference for a new document
+            DocumentReference docRef;
+            if (userId != null) {
+              docRef = firestore
+                  .collection('users')
+                  .doc(userId)
+                  .collection('data')
+                  .doc(collectionName)
+                  .collection('entries')
+                  .doc(); // Auto-generate ID
+            } else {
+              docRef = firestore
+                  .collection('data')
+                  .doc(collectionName)
+                  .collection('entries')
+                  .doc(); // Auto-generate ID
+            }
+
+            // Add to batch
+            batch.set(docRef, entry);
+          }
         }
+
+        // Commit the batch
+        await batch.commit();
+
         return; // Exit the loop if successful
       } catch (e) {
         retries++;
@@ -637,10 +720,12 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
 
         List<gen_ai.Part> parts = [
           gen_ai.TextPart(
-              """Extract the following information from this invoice and format it exactly as shown in the JSON template below:
+              """Extract all instances of the following information from this document and format it as a JSON array of objects. Each object should follow this template:
 
-            $jsonTemplate
-            """)
+                $jsonTemplate
+
+                If there are multiple entries/rows in the document, extract each one as a separate object in the array. If there is only one entry, still return it as an array with a single object.
+                """)
         ];
 
         parts.add(gen_ai.DataPart('image/jpeg', imageBytes));
@@ -652,27 +737,49 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         responseText = responseText.trim();
         responseText =
             responseText.replaceAll('```json', '').replaceAll('```', '');
-        int startIdx = responseText.indexOf('{');
-        int endIdx = responseText.lastIndexOf('}') + 1;
-        if (startIdx != -1 && endIdx != -1) {
-          responseText = responseText.substring(startIdx, endIdx);
-        }
+
+        // Check if the response is an array or a single object
+        int startArrayIdx = responseText.indexOf('[');
+        int endArrayIdx = responseText.lastIndexOf(']') + 1;
+        int startObjIdx = responseText.indexOf('{');
+        int endObjIdx = responseText.lastIndexOf('}') + 1;
+
         dynamic jsonOutput;
+
         try {
-          jsonOutput = json.decode(responseText);
-        } catch (e) {
-          try {
-            jsonOutput = json.decode(responseText);
-          } catch (e) {
-            setState(() {
-              _geminiOutput =
-                  'Error decoding JSON: $e\nRaw Response: $responseText';
-            });
-            return;
+          if (startArrayIdx != -1 &&
+              endArrayIdx != -1 &&
+              startArrayIdx < endArrayIdx) {
+            // It's an array format
+            String jsonArrayStr =
+                responseText.substring(startArrayIdx, endArrayIdx);
+            jsonOutput = json.decode(jsonArrayStr);
+          } else if (startObjIdx != -1 && endObjIdx != -1) {
+            // It's a single object, wrap it in an array
+            String jsonObjStr = responseText.substring(startObjIdx, endObjIdx);
+            jsonOutput = [json.decode(jsonObjStr)];
+          } else {
+            throw FormatException('Could not find valid JSON in response');
           }
+        } catch (e) {
+          setState(() {
+            _geminiOutput =
+                'Error decoding JSON: $e\nRaw Response: $responseText';
+          });
+          retries++;
+          if (retries < 3) {
+            await Future.delayed(Duration(seconds: 1));
+            continue;
+          }
+          return;
         }
+
+        // Ensure jsonOutput is a List
+        List<dynamic> jsonList = jsonOutput is List ? jsonOutput : [jsonOutput];
+
         setState(() {
-          _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
+          _geminiOutput = 'Found ${jsonList.length} entries:\n\n' +
+              JsonEncoder.withIndent('  ').convert(jsonList);
         });
 
         // Upload to Firebase Storage
@@ -684,24 +791,42 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
         final storageSnapshot = await storageUploadTask;
         final downloadUrl = await storageSnapshot.ref.getDownloadURL();
 
-        // Save to Firestore
+        // Save to Firestore - now save each entry separately
         final collectionName = _selectedTemplate!['name'] as String;
         final firestore = FirebaseFirestore.instance;
-        if (userId != null) {
-          await firestore
-              .collection('users')
-              .doc(userId)
-              .collection('data')
-              .doc(collectionName)
-              .collection('entries')
-              .add({...jsonOutput, 'fileUrl': downloadUrl});
-        } else {
-          await firestore
-              .collection('data')
-              .doc(collectionName)
-              .collection('entries')
-              .add({...jsonOutput, 'fileUrl': downloadUrl});
+        final batch = firestore.batch();
+
+        for (var entry in jsonList) {
+          if (entry is Map<String, dynamic>) {
+            // Add file URL to each entry
+            entry['fileUrl'] = downloadUrl;
+
+            // Create a reference for a new document
+            DocumentReference docRef;
+            if (userId != null) {
+              docRef = firestore
+                  .collection('users')
+                  .doc(userId)
+                  .collection('data')
+                  .doc(collectionName)
+                  .collection('entries')
+                  .doc(); // Auto-generate ID
+            } else {
+              docRef = firestore
+                  .collection('data')
+                  .doc(collectionName)
+                  .collection('entries')
+                  .doc(); // Auto-generate ID
+            }
+
+            // Add to batch
+            batch.set(docRef, entry);
+          }
         }
+
+        // Commit the batch
+        await batch.commit();
+
         return; // Exit the loop if successful
       } catch (e) {
         retries++;
@@ -806,86 +931,315 @@ class _PdfOrImageProcessorPageState extends State<PdfOrImageProcessorPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Process PDF or Images')),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              itemCount: _templates.length,
-              itemBuilder: (context, index) {
-                final template = _templates[index];
-                return ListTile(
-                  title: Text(template['name'] ?? 'Unnamed Template'),
-                  onTap: () {
-                    setState(() {
-                      _selectedTemplate = template;
-                    });
-                  },
-                  trailing: _selectedTemplate == template
-                      ? Icon(Icons.check_circle, color: Colors.green)
-                      : null,
+      appBar: AppBar(
+        title: Text('Process Documents'),
+        elevation: 2,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.view_list),
+            tooltip: 'View Documents',
+            onPressed: () {
+              if (_selectedTemplate != null &&
+                  _selectedTemplate!['name'] != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ViewDocumentsPage(
+                        templateName: _selectedTemplate!['name']),
+                  ),
                 );
-              },
-            ),
-          ),
-          if (_showLinesPerBatch)
-            TextField(
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: 'Lines per batch'),
-              onChanged: (value) {
-                setState(() {
-                  _linesPerBatch = int.tryParse(value) ?? 10;
-                });
-              },
-            ),
-          ElevatedButton(
-            onPressed: _pickAndProcessMultiplePDFs,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.picture_as_pdf),
-                SizedBox(width: 8),
-                Text('Process PDFs'),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: _pickAndProcessImages,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.image),
-                SizedBox(width: 8),
-                Text('Process Images'),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: _pickAndProcessTextFile,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.text_snippet),
-                SizedBox(width: 8),
-                Text('Process Text File'),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Status: $_status',
-              textAlign: TextAlign.left,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'AI Output:\n$_geminiOutput',
-              textAlign: TextAlign.left,
-            ),
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Please select a template first')),
+                );
+              }
+            },
           ),
         ],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Template selection card
+              Card(
+                elevation: 2,
+                margin: EdgeInsets.only(bottom: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Select Template',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueGrey[800],
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Divider(),
+                      Container(
+                        height: 150,
+                        child: _templates.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No templates available. Create a template first.',
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: _templates.length,
+                                separatorBuilder: (context, index) =>
+                                    Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final template = _templates[index];
+                                  return ListTile(
+                                    leading: Icon(
+                                      Icons.description,
+                                      color: _selectedTemplate == template
+                                          ? Colors.green
+                                          : Colors.blue[700],
+                                    ),
+                                    title: Text(
+                                        template['name'] ?? 'Unnamed Template'),
+                                    subtitle: Text(
+                                        '${(template.length - 1).toString()} fields'),
+                                    trailing: _selectedTemplate == template
+                                        ? Icon(Icons.check_circle,
+                                            color: Colors.green)
+                                        : null,
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedTemplate = template;
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Processing options card
+              Card(
+                elevation: 2,
+                margin: EdgeInsets.only(bottom: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Process Documents',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueGrey[800],
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: Icon(Icons.picture_as_pdf),
+                              label: Text('Process PDFs'),
+                              onPressed:
+                                  _selectedTemplate == null || _processing
+                                      ? null
+                                      : _pickAndProcessMultiplePDFs,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red[700],
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: Icon(Icons.image),
+                              label: Text('Process Images'),
+                              onPressed:
+                                  _selectedTemplate == null || _processing
+                                      ? null
+                                      : _pickAndProcessImages,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        icon: Icon(Icons.text_snippet),
+                        label: Text('Process Text File'),
+                        onPressed: _selectedTemplate == null || _processing
+                            ? null
+                            : _pickAndProcessTextFile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal[700],
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Status and output card
+              Expanded(
+                child: Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Processing Status',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blueGrey[800],
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Divider(),
+                        if (_processing)
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text(
+                                  _status,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.blueGrey[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _status.contains('Error')
+                                            ? Icons.error
+                                            : _status.contains('Finished')
+                                                ? Icons.check_circle
+                                                : Icons.info,
+                                        color: _status.contains('Error')
+                                            ? Colors.red
+                                            : _status.contains('Finished')
+                                                ? Colors.green
+                                                : Colors.blue,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _status.isEmpty
+                                              ? 'Ready to process'
+                                              : _status,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.blueGrey[800],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  'AI Output:',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blueGrey[800],
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Expanded(
+                                  child: Container(
+                                    padding: EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                      border:
+                                          Border.all(color: Colors.grey[300]!),
+                                    ),
+                                    child: SingleChildScrollView(
+                                      child: Text(
+                                        _geminiOutput.isEmpty
+                                            ? 'Processed data will appear here'
+                                            : _geminiOutput,
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

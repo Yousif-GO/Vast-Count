@@ -172,10 +172,10 @@ class DynamicFieldAdderService {
     }
   }
 
-  Future<void> generateTemplateFromImage(
+  Future<void> generateTemplateFromImage(BuildContext context,
       Uint8List imageBytes, String geminiApiKey, String geminiModel) async {
     showDialog(
-      context: formKey.currentContext!,
+      context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
@@ -231,10 +231,10 @@ class DynamicFieldAdderService {
         try {
           jsonOutput = json.decode(responseText);
         } catch (e) {
-          ScaffoldMessenger.of(formKey.currentContext!).showSnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Error decoding JSON: $e')),
           );
-          Navigator.of(formKey.currentContext!).pop();
+          Navigator.of(context).pop();
           return;
         }
       }
@@ -249,11 +249,11 @@ class DynamicFieldAdderService {
         });
       });
     } catch (e) {
-      ScaffoldMessenger.of(formKey.currentContext!).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error generating template: $e')),
       );
     } finally {
-      Navigator.of(formKey.currentContext!).pop();
+      Navigator.of(context).pop();
     }
   }
 

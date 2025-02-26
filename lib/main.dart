@@ -30,6 +30,8 @@ import 'view_documents_page.dart'; // Import the new page
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'services/api_key_service.dart';
 
 class Config {
   String apiKey = '';
@@ -38,7 +40,13 @@ class Config {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load .env file
+  await dotenv.load(fileName: 'assets/.env');
+
+  // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   runApp(MyApp());
 }
 
@@ -49,8 +57,9 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _isLoggedIn = false;
+  bool _isAnonymous = false;
   // Hardcoded API key and model name
-  String _geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  String _geminiApiKey = ApiKeyService.getGeminiApiKey();
   String _geminiModel = 'gemini-1.5-flash';
 
   @override
@@ -64,6 +73,7 @@ class _MyAppState extends State<MyApp> {
     FirebaseAuth.instance.authStateChanges().listen((user) {
       setState(() {
         _isLoggedIn = user != null;
+        _isAnonymous = user?.isAnonymous ?? false;
       });
     });
   }
@@ -80,103 +90,75 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Gemini App',
+      title: 'Vastcount',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        brightness: Brightness.light,
+        primarySwatch: Colors.blueGrey,
+        primaryColor: Colors.blueGrey[700],
+        scaffoldBackgroundColor: Colors.white,
+        colorScheme: ColorScheme.light(
+          primary: Colors.blueGrey[700]!,
+          secondary: Colors.teal[600]!,
+          surface: Colors.white,
+          background: Colors.grey[50]!,
+        ),
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.blueGrey[700],
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-          iconTheme: IconThemeData(color: Colors.white),
+          foregroundColor: Colors.white,
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.blueGrey[700],
             foregroundColor: Colors.white,
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            textStyle: TextStyle(fontSize: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey[400]!),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.blue),
-          ),
-          labelStyle: TextStyle(color: Colors.grey[600]),
-          floatingLabelStyle: TextStyle(color: Colors.blue),
-        ),
-        iconTheme: IconThemeData(color: Colors.blueGrey[700]),
-      ),
-      darkTheme: ThemeData(
-        primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
-        brightness: Brightness.dark,
+      ),
+      darkTheme: ThemeData.dark().copyWith(
+        primaryColor: Colors.blueGrey[800],
+        scaffoldBackgroundColor: Colors.blueGrey[900],
+        colorScheme: ColorScheme.dark(
+          primary: Colors.blueGrey[700]!,
+          secondary: Colors.teal[600]!,
+          surface: Colors.blueGrey[800]!,
+          background: Colors.blueGrey[900]!,
+        ),
         appBarTheme: AppBarTheme(
-          backgroundColor: Colors.blueGrey[900],
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-          iconTheme: IconThemeData(color: Colors.white),
+          backgroundColor: Colors.blueGrey[800],
+          foregroundColor: Colors.white,
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blueGrey[900],
+            backgroundColor: Colors.blueGrey[700],
             foregroundColor: Colors.white,
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            textStyle: TextStyle(fontSize: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey[700]!),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.blue),
-          ),
-          labelStyle: TextStyle(color: Colors.grey[400]),
-          floatingLabelStyle: TextStyle(color: Colors.blue),
-        ),
-        iconTheme: IconThemeData(color: Colors.blueGrey[900]),
       ),
       themeMode: ThemeMode.system,
       home: _isLoggedIn
-          ? FutureBuilder<bool>(
-              future: _isEmailVerified(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (snapshot.hasData && snapshot.data == true) {
-                  return HomePage(
-                    geminiApiKey: _geminiApiKey,
-                    geminiModel: _geminiModel,
-                  );
-                } else {
-                  return EmailVerificationPage();
-                }
-              },
-            )
+          ? _isAnonymous
+              ? HomePage(
+                  geminiApiKey: _geminiApiKey,
+                  geminiModel: _geminiModel,
+                )
+              : FutureBuilder<bool>(
+                  future: _isEmailVerified(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (snapshot.hasData && snapshot.data == true) {
+                      return HomePage(
+                        geminiApiKey: _geminiApiKey,
+                        geminiModel: _geminiModel,
+                      );
+                    } else {
+                      return EmailVerificationPage();
+                    }
+                  },
+                )
           : LoginPage(),
     );
   }
@@ -192,6 +174,7 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   String _errorMessage = '';
+  bool _isLoading = false;
 
   Future<void> _signInWithEmailAndPassword() async {
     if (_formKey.currentState!.validate()) {
@@ -220,6 +203,27 @@ class _LoginPageState extends State<LoginPage> {
           _errorMessage = e.message ?? 'An error occurred';
         });
       }
+    }
+  }
+
+  Future<void> _tryDemoMode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+    try {
+      // Sign in anonymously with Firebase
+      await FirebaseAuth.instance.signInAnonymously();
+      print("Anonymous sign-in successful"); // Debug print
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+      print("Anonymous sign-in error: $e"); // Debug print
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -276,7 +280,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: _signInWithEmailAndPassword,
+                  onPressed: _isLoading ? null : _signInWithEmailAndPassword,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
@@ -285,11 +289,20 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
-                  child: Text('Login'),
+                  child: _isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text('Login'),
                 ),
                 SizedBox(height: 16),
                 ElevatedButton(
-                  onPressed: _signUpWithEmailAndPassword,
+                  onPressed: _isLoading ? null : _signUpWithEmailAndPassword,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
@@ -299,6 +312,20 @@ class _LoginPageState extends State<LoginPage> {
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
                   child: Text('Sign Up'),
+                ),
+                SizedBox(height: 16),
+                ElevatedButton.icon(
+                  icon: Icon(Icons.play_arrow),
+                  label: Text('Try Demo'),
+                  onPressed: _isLoading ? null : _tryDemoMode,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
                 ),
                 if (_errorMessage.isNotEmpty)
                   Padding(
@@ -364,11 +391,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _processImage() {
-    Navigator.push(
+  void _processImage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => PdfOrImageProcessorPage()),
     );
+    _loadTemplates();
   }
 
   void _viewDocuments(String templateName) {
@@ -383,30 +411,121 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isAnonymous =
+        FirebaseAuth.instance.currentUser?.isAnonymous ?? false;
+
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('AI Accountant'),
-        backgroundColor: Colors.blueGrey[700], // AppBar background color
+        title: Text('Vastcount'),
+        backgroundColor: Theme.of(context).primaryColor,
+        actions: [
+          if (isAnonymous)
+            TextButton(
+              onPressed: () {
+                // Sign out and return to login page
+                FirebaseAuth.instance.signOut();
+              },
+              child: Text(
+                'Exit Demo',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+        ],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
+      body: Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: isAnonymous
+            ? Banner(
+                message: 'DEMO MODE',
+                location: BannerLocation.topEnd,
+                color: Colors.orange,
+                child: _buildMainContent(),
+              )
+            : _buildMainContent(),
+      ),
+    );
+  }
+
+  Widget _buildMainContent() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => DynamicFieldAdder(
+                            geminiApiKey: widget.geminiApiKey,
+                            geminiModel: widget.geminiModel,
+                          )),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue, // Button color
+                foregroundColor: Colors.white, // Text color
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8), // Rounded corners
+                ),
+                padding: EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12), // Padding
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add),
+                  SizedBox(width: 8),
+                  Text('Add Template'),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _processImage,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green, // Button color
+                foregroundColor: Colors.white, // Text color
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8), // Rounded corners
+                ),
+                padding: EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12), // Padding
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.image),
+                  SizedBox(width: 8),
+                  Text('Process Image or PDF'),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
+            DropdownButton<String>(
+              value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
+              hint: Text('Select a template to view documents'),
+              items: _templates.map((template) {
+                return DropdownMenuItem<String>(
+                  value: template['name'],
+                  child: Text(template['name']),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedTemplate = value!;
+                });
+              },
+            ),
+            SizedBox(height: 16),
+            if (_selectedTemplate.isNotEmpty)
               ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => DynamicFieldAdder(
-                              geminiApiKey: widget.geminiApiKey,
-                              geminiModel: widget.geminiModel,
-                            )),
-                  );
-                },
+                onPressed: () => _viewDocuments(_selectedTemplate),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue, // Button color
+                  backgroundColor: Colors.teal, // Button color
                   foregroundColor: Colors.white, // Text color
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8), // Rounded corners
@@ -417,73 +536,13 @@ class _HomePageState extends State<HomePage> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.add),
+                    Icon(Icons.visibility),
                     SizedBox(width: 8),
-                    Text('Add Template'),
+                    Text('View Documents'),
                   ],
                 ),
-              ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _processImage,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green, // Button color
-                  foregroundColor: Colors.white, // Text color
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8), // Rounded corners
-                  ),
-                  padding: EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12), // Padding
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.image),
-                    SizedBox(width: 8),
-                    Text('Process Image or PDF'),
-                  ],
-                ),
-              ),
-              SizedBox(height: 16),
-              DropdownButton<String>(
-                value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
-                hint: Text('Select a template to view documents'),
-                items: _templates.map((template) {
-                  return DropdownMenuItem<String>(
-                    value: template['name'],
-                    child: Text(template['name']),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedTemplate = value!;
-                  });
-                },
-              ),
-              SizedBox(height: 16),
-              if (_selectedTemplate.isNotEmpty)
-                ElevatedButton(
-                  onPressed: () => _viewDocuments(_selectedTemplate),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal, // Button color
-                    foregroundColor: Colors.white, // Text color
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8), // Rounded corners
-                    ),
-                    padding: EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12), // Padding
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.visibility),
-                      SizedBox(width: 8),
-                      Text('View Documents'),
-                    ],
-                  ),
-                )
-            ],
-          ),
+              )
+          ],
         ),
       ),
     );
@@ -572,8 +631,8 @@ class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
                   final file = result.files.first;
                   final fileBytes = file.bytes;
                   if (fileBytes != null) {
-                    await _service.generateTemplateFromImage(
-                        fileBytes, widget.geminiApiKey, widget.geminiModel);
+                    await _service.generateTemplateFromImage(context, fileBytes,
+                        widget.geminiApiKey, widget.geminiModel);
                   }
                 }
               },

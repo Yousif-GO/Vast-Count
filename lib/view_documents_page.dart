@@ -11,11 +11,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io'; // Not used on the web
 import 'dart:html' as html; // For web download:
+import 'services/api_key_service.dart';
 
 class ViewDocumentsPage extends StatefulWidget {
   final String templateName;
   // Hardcoded API key and model name
-  final String geminiApiKey = 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0';
+  final String geminiApiKey = ApiKeyService.getGeminiApiKey();
   final String geminiModel = 'gemini-1.5-flash';
 
   ViewDocumentsPage({
@@ -50,6 +51,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
   String? _selectedDateFilterOperator;
   String? _selectedGeminiColumn;
   final ScrollController _horizontalScrollController = ScrollController();
+  List<CalculatedColumnDefinition> _calculatedColumns = [];
 
   @override
   void initState() {
@@ -110,6 +112,7 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
           _calculateSums();
         }
       });
+      _applyCalculatedColumns();
     } catch (e) {
       print('Error loading documents: $e');
     } finally {
@@ -441,6 +444,12 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
       }
       _filteredDocuments = List.from(_documents);
       _filterDocuments();
+      _calculatedColumns.add(CalculatedColumnDefinition(
+        sourceColumn: selectedColumn,
+        operation: operation,
+        newColumnName: newColumnName,
+        isGemini: false,
+      ));
     });
   }
 
@@ -762,6 +771,58 @@ class _ViewDocumentsPageState extends State<ViewDocumentsPage> {
 
     // Share the CSV file using share_plus.
     await Share.shareXFiles([XFile(filePath)], subject: "Exported CSV Data");
+  }
+
+  void _applyCalculatedColumns() {
+    for (var def in _calculatedColumns) {
+      for (var doc in _documents) {
+        // Check if this calculated column isn't already present.
+        bool alreadyApplied = false;
+        if (doc.containsKey('fields') && doc['fields'] is Map) {
+          alreadyApplied =
+              (doc['fields'] as Map).containsKey(def.newColumnName);
+        } else {
+          alreadyApplied = doc.containsKey(def.newColumnName);
+        }
+        if (!alreadyApplied) {
+          dynamic sourceValue;
+          // Lookup source value from either top-level or from 'fields'
+          if (doc.containsKey(def.sourceColumn)) {
+            sourceValue = doc[def.sourceColumn];
+          } else if (doc.containsKey('fields') &&
+              (doc['fields'] as Map).containsKey(def.sourceColumn)) {
+            sourceValue = (doc['fields'] as Map)[def.sourceColumn];
+          }
+          if (sourceValue != null) {
+            try {
+              final parsedValue = _parseNumber(sourceValue.toString());
+              dynamic result;
+              if (!def.isGemini) {
+                // For multiplication, assume the operation string is like " * 0.15".
+                // For example, you might implement a simple parser or use an 'interpret()' extension.
+                result = (parsedValue.toString() + def.operation).interpret();
+              } else {
+                // For Gemini columns, you might need to re-run the API call.
+                // For simplicity, we'll mark it so you know it should be reprocessed.
+                result = 'Gemini pending';
+              }
+              // Save the result where appropriate:
+              if (doc.containsKey('fields') && doc['fields'] is Map) {
+                doc['fields'][def.newColumnName] = result;
+              } else {
+                doc[def.newColumnName] = result;
+              }
+            } catch (e) {
+              if (doc.containsKey('fields') && doc['fields'] is Map) {
+                doc['fields'][def.newColumnName] = 'Error';
+              } else {
+                doc[def.newColumnName] = 'Error';
+              }
+            }
+          }
+        }
+      } // end for each doc
+    } // end for each definition
   }
 
   @override
@@ -1146,5 +1207,20 @@ class FilterCondition {
     required this.column,
     required this.operator,
     required this.value,
+  });
+}
+
+/// Define your calculated column model.
+class CalculatedColumnDefinition {
+  final String sourceColumn;
+  final String operation; // or Gemini prompt for gemini columns
+  final String newColumnName;
+  final bool isGemini; // true if this is a gemini column
+
+  CalculatedColumnDefinition({
+    required this.sourceColumn,
+    required this.operation,
+    required this.newColumnName,
+    this.isGemini = false,
   });
 }
