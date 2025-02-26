@@ -1,4 +1,23 @@
 // lib/main.dart
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_generative_ai/google_generative_ai.dart' as gen_ai;
+import 'package:image/image.dart' as img;
+import 'firebase_options.dart';
+import 'ui/dynamic_field_adder_ui.dart';
+import 'services/dynamic_field_adder_service.dart'; // Import the service file
+import 'package:flutter/services.dart' show rootBundle; // Import rootBundle
+import 'package:file_picker/file_picker.dart'; // Import file_picker
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+import 'package:pdf/pdf.dart' as pdf;
+import 'package:syncfusion_flutter_pdf/pdf.dart'
+    as syncfusion_pdf; // Import with alias
+import 'pdf_or_image_processor_page.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
@@ -7,1205 +26,879 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'services/firebase_service.dart';
-import 'screens/vehicle_management_screen.dart';
-import 'screens/profit_loss_screen.dart';
-import 'screens/driver_view_screen.dart';
+import 'view_documents_page.dart'; // Import the new page
 import 'package:firebase_auth/firebase_auth.dart';
-import 'screens/admin_login_screen.dart';
-import 'screens/driver_login_screen.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'services/api_key_service.dart';
+
+class Config {
+  String apiKey = '';
+  String modelName = '';
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: FirebaseOptions(
-      apiKey: 'AIzaSyB40aTRgWvQzCwqOkH3QQj-RFVbu9UNxUw',
-      appId: '1:843850032876:web:e7b99e642d4eec7ba3e7c9',
-      messagingSenderId: '843850032876',
-      projectId: 'ai-accountant-de349',
-      authDomain: 'ai-accountant-de349.firebaseapp.com',
-      storageBucket: 'ai-accountant-de349.firebasestorage.app',
-    ),
-  );
-  runApp(DriverManagementApp());
+
+  // Load .env file
+  await dotenv.load(fileName: 'assets/.env');
+
+  // Initialize Firebase
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  runApp(MyApp());
 }
 
-class DriverManagementApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Driver Management',
-      theme: ThemeData(
-        brightness: Brightness.light,
-        primaryColor: Color(0xFF007BFF), // Your primary color
-        hintColor: Color(0xFF6C757D), // Hint text color
-        scaffoldBackgroundColor: Color(0xFFF8F9FA), // Background color
-        textTheme: TextTheme(
-          bodyMedium: TextStyle(color: Color(0xFF343A40)), // Default text color
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Color(0xFF007BFF), // Button background color
-            foregroundColor: Colors.white, // Button text color
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            textStyle: TextStyle(fontSize: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-        appBarTheme: AppBarTheme(
-          backgroundColor: Color(0xFF007BFF), // Your app bar background color
-          titleTextStyle: TextStyle(
-            color: Colors.white, // Your app bar title text color
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: Color(0xFF007BFF)),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          labelStyle: TextStyle(color: Color(0xFF6C757D)),
-        ),
-      ),
-      initialRoute: '/',
-      routes: {
-        '/': (context) => AuthCheckScreen(),
-        '/admin_login': (context) => AdminLoginScreen(),
-        '/driver_login': (context) => DriverLoginScreen(),
-        '/main': (context) => MainScreen(),
-        '/driver_view': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments
-              as Map<String, dynamic>?;
-          final driverId = args?['driverId'] as String? ?? '';
-          // Fetch driver data to get the name
-          return FutureBuilder<DocumentSnapshot>(
-            future: FirebaseService().getDriverById(driverId),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator());
-              }
-              if (!snapshot.hasData || !snapshot.data!.exists) {
-                return Center(child: Text('Driver not found'));
-              }
-              final driverData = snapshot.data!.data() as Map<String, dynamic>;
-              final driverName =
-                  driverData['name'] as String? ?? 'Unknown Driver';
-              return DriverViewScreen(
-                  driverId: driverId, driverName: driverName);
-            },
-          );
-        },
-      },
-    );
-  }
+  _MyAppState createState() => _MyAppState();
 }
 
-class AuthCheckScreen extends StatefulWidget {
-  @override
-  _AuthCheckScreenState createState() => _AuthCheckScreenState();
-}
-
-class _AuthCheckScreenState extends State<AuthCheckScreen> {
-  int _loginOptionIndex = 0; // Track the selected login option
-  final List<String> _loginOptions = ['admin', 'driver'];
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasData) {
-          // User is signed in, check if admin or driver
-          return FutureBuilder<String?>(
-            future: _checkAdminStatus(snapshot.data!.email),
-            builder: (context, adminSnapshot) {
-              if (adminSnapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator());
-              }
-              if (adminSnapshot.data == 'admin') {
-                return MainScreen();
-              } else if (adminSnapshot.data == 'driver') {
-                return DriverLoginScreen();
-              } else {
-                return AdminLoginScreen();
-              }
-            },
-          );
-        } else {
-          // User is not signed in, show login options
-          return _buildLoginOptions(context);
-        }
-      },
-    );
-  }
-
-  Widget _buildLoginOptions(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Welcome')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Select Login Option',
-              style: TextStyle(fontSize: 20),
-            ),
-            SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: Icon(Icons.arrow_back),
-                  onPressed: () {
-                    setState(() {
-                      _loginOptionIndex =
-                          (_loginOptionIndex - 1) % _loginOptions.length;
-                    });
-                  },
-                ),
-                SizedBox(width: 20),
-                ElevatedButton(
-                  onPressed: () {
-                    if (_loginOptions[_loginOptionIndex] == 'admin') {
-                      Navigator.pushNamed(context, '/admin_login');
-                    } else if (_loginOptions[_loginOptionIndex] == 'driver') {
-                      Navigator.pushNamed(context, '/driver_login');
-                    }
-                  },
-                  child: Text(
-                      '${_loginOptions[_loginOptionIndex][0].toUpperCase()}${_loginOptions[_loginOptionIndex].substring(1)} Login'),
-                ),
-                SizedBox(width: 20),
-                IconButton(
-                  icon: Icon(Icons.arrow_forward),
-                  onPressed: () {
-                    setState(() {
-                      _loginOptionIndex =
-                          (_loginOptionIndex + 1) % _loginOptions.length;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<String?> _checkAdminStatus(String? email) async {
-    if (email == null) return null;
-    // Check if the email is in the admin list
-    final adminEmails = [
-      'vast.expand@gmail.com'
-    ]; // Replace with your admin emails
-    if (adminEmails.contains(email)) {
-      return 'admin';
-    }
-    // Check if the email is in the driver list
-    final driverId = await FirebaseService().getDriverIdByEmail(email);
-    if (driverId != null) {
-      return 'driver';
-    }
-    return null;
-  }
-}
-
-class DriverAuthScreen extends StatelessWidget {
-  final String driverId;
-  final String adminEmail;
-
-  DriverAuthScreen({required this.driverId, required this.adminEmail});
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseService().getDriverById(driverId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return Center(child: Text('Driver not found'));
-        }
-        final driverData = snapshot.data!.data() as Map<String, dynamic>;
-        final driverName = driverData['name'] as String? ?? 'Unknown Driver';
-
-        return _buildAuthScreen(context, driverId, driverName);
-      },
-    );
-  }
-
-  Widget _buildAuthScreen(
-      BuildContext context, String driverId, String driverName) {
-    final TextEditingController _emailController = TextEditingController();
-    final _formKey = GlobalKey<FormState>();
-
-    return Scaffold(
-      appBar: AppBar(title: Text('Driver Details')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Enter Admin Email to view driver details',
-                style: TextStyle(fontSize: 18),
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 20),
-              TextFormField(
-                controller: _emailController,
-                decoration: InputDecoration(labelText: 'Admin Email'),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter an email';
-                  }
-                  if (value != adminEmail) {
-                    return 'Incorrect email';
-                  }
-                  return null;
-                },
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DriverViewScreen(
-                          driverId: driverId,
-                          driverName: driverName,
-                        ),
-                      ),
-                    );
-                  }
-                },
-                child: Text('View Details'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class MainScreen extends StatefulWidget {
-  @override
-  _MainScreenState createState() => _MainScreenState();
-}
-
-class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
-  final FirebaseService _firebaseService = FirebaseService();
-  final model = GenerativeModel(
-    model: 'gemini-1.5-flash',
-    apiKey: 'AIzaSyCQ8sbo-2fr7GHbR9034d0G2oCTF_r4vh0',
-  );
-  bool _processing = false;
-  String _status = '';
-  String _sortField = 'date';
-  bool _sortAscending = false;
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Main Screen'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacementNamed(context, '/');
-            },
-          ),
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: Icon(Icons.local_shipping),
-            label: 'Drivers',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.directions_car),
-            label: 'Vehicles',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.attach_money),
-            label: 'Profit & Loss',
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        selectedItemColor: Theme.of(context).primaryColor,
-        unselectedItemColor: Colors.grey,
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        unselectedLabelStyle: TextStyle(color: Colors.grey),
-        onTap: _onItemTapped,
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    switch (_selectedIndex) {
-      case 0:
-        return DriverManagementScreen(
-          firebaseService: _firebaseService,
-          model: model,
-          processing: _processing,
-          status: _status,
-          sortField: _sortField,
-          sortAscending: _sortAscending,
-          setProcessing: (bool value) => setState(() => _processing = value),
-          setStatus: (String value) => setState(() => _status = value),
-          setSortField: (String value) => setState(() => _sortField = value),
-          setSortAscending: (bool value) =>
-              setState(() => _sortAscending = value),
-        );
-      case 1:
-        return VehicleManagementScreen();
-      case 2:
-        return ProfitLossScreen();
-      default:
-        return Container();
-    }
-  }
-}
-
-class DriverManagementScreen extends StatefulWidget {
-  final FirebaseService firebaseService;
-  final GenerativeModel model;
-  final bool processing;
-  final String status;
-  final String sortField;
-  final bool sortAscending;
-  final Function(bool) setProcessing;
-  final Function(String) setStatus;
-  final Function(String) setSortField;
-  final Function(bool) setSortAscending;
-
-  DriverManagementScreen({
-    required this.firebaseService,
-    required this.model,
-    required this.processing,
-    required this.status,
-    required this.sortField,
-    required this.sortAscending,
-    required this.setProcessing,
-    required this.setStatus,
-    required this.setSortField,
-    required this.setSortAscending,
-  });
-
-  @override
-  _DriverManagementScreenState createState() => _DriverManagementScreenState();
-}
-
-class _DriverManagementScreenState extends State<DriverManagementScreen> {
-  String _sortField = 'date';
-  bool _sortAscending = false;
+class _MyAppState extends State<MyApp> {
+  bool _isLoggedIn = false;
+  bool _isAnonymous = false;
+  // Hardcoded API key and model name
+  String _geminiApiKey = ApiKeyService.getGeminiApiKey();
+  String _geminiModel = 'gemini-1.5-flash';
 
   @override
   void initState() {
     super.initState();
-    _sortField = widget.sortField;
-    _sortAscending = widget.sortAscending;
+    _checkLoginStatus();
+    // No need to load API key here
+  }
+
+  Future<void> _checkLoginStatus() async {
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      setState(() {
+        _isLoggedIn = user != null;
+        _isAnonymous = user?.isAnonymous ?? false;
+      });
+    });
+  }
+
+  Future<bool> _isEmailVerified() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await user.reload();
+      return user.emailVerified;
+    }
+    return false;
   }
 
   @override
-  void didUpdateWidget(covariant DriverManagementScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.sortField != oldWidget.sortField ||
-        widget.sortAscending != oldWidget.sortAscending) {
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Vastcount',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blueGrey,
+        primaryColor: Colors.blueGrey[700],
+        scaffoldBackgroundColor: Colors.white,
+        colorScheme: ColorScheme.light(
+          primary: Colors.blueGrey[700]!,
+          secondary: Colors.teal[600]!,
+          surface: Colors.white,
+          background: Colors.grey[50]!,
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blueGrey[700],
+          foregroundColor: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueGrey[700],
+            foregroundColor: Colors.white,
+          ),
+        ),
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      darkTheme: ThemeData.dark().copyWith(
+        primaryColor: Colors.blueGrey[800],
+        scaffoldBackgroundColor: Colors.blueGrey[900],
+        colorScheme: ColorScheme.dark(
+          primary: Colors.blueGrey[700]!,
+          secondary: Colors.teal[600]!,
+          surface: Colors.blueGrey[800]!,
+          background: Colors.blueGrey[900]!,
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blueGrey[800],
+          foregroundColor: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueGrey[700],
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ),
+      themeMode: ThemeMode.system,
+      home: _isLoggedIn
+          ? _isAnonymous
+              ? HomePage(
+                  geminiApiKey: _geminiApiKey,
+                  geminiModel: _geminiModel,
+                )
+              : FutureBuilder<bool>(
+                  future: _isEmailVerified(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (snapshot.hasData && snapshot.data == true) {
+                      return HomePage(
+                        geminiApiKey: _geminiApiKey,
+                        geminiModel: _geminiModel,
+                      );
+                    } else {
+                      return EmailVerificationPage();
+                    }
+                  },
+                )
+          : LoginPage(),
+    );
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  @override
+  _LoginPageState createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String _errorMessage = '';
+  bool _isLoading = false;
+
+  Future<void> _signInWithEmailAndPassword() async {
+    if (_formKey.currentState!.validate()) {
+      try {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      } on FirebaseAuthException catch (e) {
+        setState(() {
+          _errorMessage = e.message ?? 'An error occurred';
+        });
+      }
+    }
+  }
+
+  Future<void> _signUpWithEmailAndPassword() async {
+    if (_formKey.currentState!.validate()) {
+      try {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      } on FirebaseAuthException catch (e) {
+        setState(() {
+          _errorMessage = e.message ?? 'An error occurred';
+        });
+      }
+    }
+  }
+
+  Future<void> _tryDemoMode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+    try {
+      // Sign in anonymously with Firebase
+      await FirebaseAuth.instance.signInAnonymously();
+      print("Anonymous sign-in successful"); // Debug print
+    } catch (e) {
       setState(() {
-        _sortField = widget.sortField;
-        _sortAscending = widget.sortAscending;
+        _errorMessage = e.toString();
+      });
+      print("Anonymous sign-in error: $e"); // Debug print
+    } finally {
+      setState(() {
+        _isLoading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Driver Management'),
-        actions: [
-          PopupMenuButton<String>(
-            icon: Icon(Icons.sort),
-            onSelected: (String field) {
-              widget.setSortField(field);
-              widget.setSortAscending(
-                  _sortField == field ? !_sortAscending : true);
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem(
-                value: 'date',
-                child: Row(
-                  children: [
-                    Icon(_sortField == 'date'
-                        ? (_sortAscending
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward)
-                        : null),
-                    SizedBox(width: 8),
-                    Text('Sort by Date'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'amount',
-                child: Row(
-                  children: [
-                    Icon(_sortField == 'amount'
-                        ? (_sortAscending
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward)
-                        : null),
-                    SizedBox(width: 8),
-                    Text('Sort by Amount'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'order_number',
-                child: Row(
-                  children: [
-                    Icon(_sortField == 'order_number'
-                        ? (_sortAscending
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward)
-                        : null),
-                    SizedBox(width: 8),
-                    Text('Sort by Order Number'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+        title: Text('Login'),
+        backgroundColor: Colors.blueGrey[700],
       ),
-      body: Column(
-        children: [
-          // PDF Upload Section
-          Padding(
-            padding: EdgeInsets.all(16.0),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
             child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ElevatedButton(
-                      onPressed: widget.processing
-                          ? null
-                          : _pickAndProcessMultiplePDFs,
-                      child: Text('Upload PDFs'),
-                    ),
-                    SizedBox(width: 16),
-                    ElevatedButton(
-                      onPressed:
-                          widget.processing ? null : _processZellePayments,
-                      child: Text('Upload Zelle Statement'),
-                    ),
-                  ],
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                TextFormField(
+                  controller: _emailController,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    return null;
+                  },
                 ),
-                if (widget.processing) CircularProgressIndicator(),
-                Text(widget.status),
+                SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    border: OutlineInputBorder(),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your password';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _signInWithEmailAndPassword,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  child: _isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text('Login'),
+                ),
+                SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _signUpWithEmailAndPassword,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  child: Text('Sign Up'),
+                ),
+                SizedBox(height: 16),
+                ElevatedButton.icon(
+                  icon: Icon(Icons.play_arrow),
+                  label: Text('Try Demo'),
+                  onPressed: _isLoading ? null : _tryDemoMode,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+                if (_errorMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(
+                      _errorMessage,
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
 
-          // Driver List Section
-          Expanded(
-            child: _buildDriverList(),
-          ),
+class HomePage extends StatefulWidget {
+  final String geminiApiKey;
+  final String geminiModel;
+
+  HomePage({
+    required this.geminiApiKey,
+    required this.geminiModel,
+  });
+
+  @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  String _geminiOutput = '';
+  String _selectedTemplate = '';
+  List<Map<String, dynamic>> _templates = [];
+  late DynamicFieldAdderService _service;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = DynamicFieldAdderService(
+      formKey: GlobalKey<FormState>(),
+      collectionNameController: TextEditingController(),
+      documentNameController: null,
+      fieldNameControllers: [],
+      fieldValueControllers: [],
+      templates: _templates,
+      templateNameController: TextEditingController(),
+      setState: setState,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadTemplates();
+  }
+
+  Future<void> _loadTemplates() async {
+    await _service.loadTemplates();
+    setState(() {
+      _templates = _service.templates;
+    });
+  }
+
+  void _processImage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PdfOrImageProcessorPage()),
+    );
+    _loadTemplates();
+  }
+
+  void _viewDocuments(String templateName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (context) => ViewDocumentsPage(
+                templateName: templateName,
+              )),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isAnonymous =
+        FirebaseAuth.instance.currentUser?.isAnonymous ?? false;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: Text('Vastcount'),
+        backgroundColor: Theme.of(context).primaryColor,
+        actions: [
+          if (isAnonymous)
+            TextButton(
+              onPressed: () {
+                // Sign out and return to login page
+                FirebaseAuth.instance.signOut();
+              },
+              child: Text(
+                'Exit Demo',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDriverList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: widget.firebaseService.getDrivers(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Center(child: CircularProgressIndicator());
-        }
-
-        final drivers = snapshot.data!.docs;
-
-        return ListView.builder(
-          itemCount: drivers.length,
-          itemBuilder: (context, index) {
-            final driverDoc = drivers[index];
-            final driverData = driverDoc.data() as Map<String, dynamic>;
-            return ListTile(
-              title: Text(driverData['name'] ?? 'Unknown Driver'),
-              subtitle: Text(driverDoc.id),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.visibility),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => DriverViewScreen(
-                            driverId: driverDoc.id,
-                            driverName: driverData['name'] ?? 'Unknown Driver',
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.merge_type),
-                    onPressed: () =>
-                        _showMergeDialog(driverDoc.id, driverData['name']),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.build),
-                    onPressed: () => _showMaintenanceDialog(
-                        driverDoc.id, driverData['name']),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.email),
-                    onPressed: () => _showAssignEmailDialog(
-                        driverDoc.id, driverData['name']),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _pickAndProcessMultiplePDFs() async {
-    try {
-      widget.setProcessing(true);
-      widget.setStatus('Selecting PDFs...');
-
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        allowMultiple: true,
-      );
-
-      if (result == null || result.files.isEmpty) {
-        widget.setStatus('No files selected');
-        widget.setProcessing(false);
-        return;
-      }
-
-      int processedCount = 0;
-      int totalFiles = result.files.length;
-
-      for (PlatformFile file in result.files) {
-        widget.setStatus(
-            'Processing PDF ${processedCount + 1} of $totalFiles...');
-
-        final bytes = file.bytes;
-        if (bytes == null) {
-          continue;
-        }
-
-        try {
-          final document = PdfDocument(inputBytes: bytes);
-          String pdfText = '';
-          for (int i = 0; i < document.pages.count; i++) {
-            pdfText +=
-                PdfTextExtractor(document).extractText(startPageIndex: i);
-          }
-
-          final response = await widget.model
-              .generateContent([Content.text(_buildPrompt(pdfText))]);
-          String jsonText = _cleanJsonResponse(response.text ?? '');
-
-          final data = json.decode(jsonText);
-          if (_validateAndSaveData(data)) {
-            processedCount++;
-          }
-        } catch (e) {
-          print('Error processing ${file.name}: $e');
-        }
-      }
-
-      widget.setStatus('Processing complete. Starting cleanup...');
-      await _cleanupDuplicates();
-
-      widget.setStatus(
-          'Completed! Processed $processedCount of $totalFiles files');
-      widget.setProcessing(false);
-    } catch (e) {
-      widget.setStatus('Error: ${e.toString()}');
-      widget.setProcessing(false);
-    }
-  }
-
-  String _buildPrompt(String pdfText) {
-    return """Extract the following information from this invoice and format it exactly as shown in the JSON template below.
-      For miles, calculate the approximate distance between pickup and delivery locations.
-      
-      Template:
-      {
-        "driver_name": "full name of driver",
-        "phone": "phone number if available, otherwise 'N/A'",
-        "date": "YYYY-MM-DD",
-        "amount": "0.00",
-        "miles": "estimated miles between locations",
-        "order_number": "Travel order number",
-        "company": "company name"
-      }
-
-      Invoice text: $pdfText""";
-  }
-
-  String _cleanJsonResponse(String jsonText) {
-    jsonText = jsonText.replaceAll('```json', '').replaceAll('```', '').trim();
-    final startIdx = jsonText.indexOf('{');
-    final endIdx = jsonText.lastIndexOf('}') + 1;
-
-    if (startIdx != -1 && endIdx != -1) {
-      return jsonText.substring(startIdx, endIdx);
-    }
-    return '{}';
-  }
-
-  bool _validateAndSaveData(Map<String, dynamic> data) {
-    final requiredFields = [
-      'driver_name',
-      'phone',
-      'date',
-      'amount',
-      'miles',
-      'order_number',
-      'company'
-    ];
-
-    if (requiredFields.every((field) => data.containsKey(field))) {
-      final driverId =
-          data['driver_name'].toString().toLowerCase().replaceAll(' ', '_');
-
-      // Save driver profile
-      widget.firebaseService.saveDriverData(driverId, {
-        'name': data['driver_name'],
-        'phone': data['phone'],
-        'last_updated': FieldValue.serverTimestamp(),
-      });
-
-      // Save payment
-      widget.firebaseService.addPayment(driverId, {
-        'order_number': data['order_number'],
-        'amount': double.tryParse(data['amount'].toString()) ?? 0.0,
-        'date': data['date'],
-        'miles': data['miles'],
-        'company': data['company'],
-      });
-
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _mergeDrivers(String sourceId, String targetId) async {
-    try {
-      final sourcePayments =
-          await widget.firebaseService.getDriverPaymentsOnce(sourceId);
-      final targetPayments =
-          await widget.firebaseService.getDriverPaymentsOnce(targetId);
-
-      final targetOrderNumbers = targetPayments.docs
-          .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return data['order_number']?.toString() ?? '';
-          })
-          .where((orderNumber) => orderNumber.isNotEmpty)
-          .toSet();
-
-      for (var payment in sourcePayments.docs) {
-        final data = payment.data() as Map<String, dynamic>;
-        final orderNumber = data['order_number']?.toString() ?? '';
-
-        if (orderNumber.isNotEmpty &&
-            !targetOrderNumbers.contains(orderNumber)) {
-          await widget.firebaseService.addPayment(targetId, data);
-        }
-      }
-
-      await widget.firebaseService.deleteDriver(sourceId);
-      widget.setStatus('Drivers merged successfully');
-    } catch (e) {
-      widget.setStatus('Error merging drivers: $e');
-    }
-  }
-
-  Future<void> _showMergeDialog(
-      String sourceDriverId, String sourceDriverName) async {
-    await showDialog(
-      context: context,
-      builder: (context) => StreamBuilder<QuerySnapshot>(
-        stream: widget.firebaseService.getDrivers(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
-          }
-
-          final drivers = snapshot.data!.docs;
-
-          return AlertDialog(
-            title: Text('Merge Driver: $sourceDriverName'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Select Driver to merge with:'),
-                  ...drivers
-                      .where((driver) => driver.id != sourceDriverId)
-                      .map((driver) {
-                    final data = driver.data() as Map<String, dynamic>;
-                    return ListTile(
-                      title: Text(data['name'] as String? ?? 'Unknown Driver'),
-                      onTap: () async {
-                        final targetDriverId = driver.id;
-                        await widget.firebaseService
-                            .mergeDrivers(sourceDriverId, targetDriverId);
-                        Navigator.pop(context);
-                      },
-                    );
-                  }),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Cancel'),
-              ),
-            ],
-          );
-        },
+      body: Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: isAnonymous
+            ? Banner(
+                message: 'DEMO MODE',
+                location: BannerLocation.topEnd,
+                color: Colors.orange,
+                child: _buildMainContent(),
+              )
+            : _buildMainContent(),
       ),
     );
   }
 
-  Future<void> _cleanupDuplicates() async {
-    try {
-      widget.setStatus('Cleaning up duplicates...');
-
-      // Get all drivers
-      final drivers = await widget.firebaseService.getDrivers().first;
-
-      for (var driver in drivers.docs) {
-        final driverId = driver.id;
-        final payments =
-            await widget.firebaseService.getDriverPaymentsOnce(driverId);
-
-        // Group payments by week to check insurance
-        Map<int, List<QueryDocumentSnapshot>> paymentsByWeek = {};
-        // Track processed order numbers
-        Set<String> processedOrders = {};
-
-        // Sort payments by date
-        final sortedPayments = payments.docs.toList()
-          ..sort((a, b) {
-            final aData = a.data() as Map<String, dynamic>;
-            final bData = b.data() as Map<String, dynamic>;
-            return (aData['date'] ?? '')
-                .toString()
-                .compareTo((bData['date'] ?? '').toString());
-          });
-
-        for (var payment in sortedPayments) {
-          final data = payment.data() as Map<String, dynamic>;
-          final date = DateTime.tryParse(data['date']?.toString() ?? '');
-          final orderNumber = data['order_number']?.toString() ?? '';
-
-          if (date != null) {
-            final weekNumber =
-                (date.difference(DateTime(date.year, 1, 1)).inDays / 7).ceil();
-            paymentsByWeek.putIfAbsent(weekNumber, () => []).add(payment);
-          }
-
-          // Delete duplicate order numbers (keep first occurrence)
-          if (orderNumber.isNotEmpty) {
-            if (processedOrders.contains(orderNumber)) {
-              await widget.firebaseService.deletePayment(driverId, payment.id);
-            } else {
-              processedOrders.add(orderNumber);
-            }
-          }
-        }
-
-        // Clean up multiple insurance charges per week
-        for (var weekPayments in paymentsByWeek.values) {
-          bool insuranceApplied = false;
-          for (var payment in weekPayments) {
-            if (insuranceApplied) {
-              // Remove insurance charge from subsequent payments in the same week
-              final data = payment.data() as Map<String, dynamic>;
-              if (data['insurance_fee'] != null) {
-                await widget.firebaseService
-                    .updatePayment(driverId, payment.id, {'insurance_fee': 0});
-              }
-            }
-            insuranceApplied = true;
-          }
-        }
-      }
-
-      widget.setStatus('Cleanup completed');
-    } catch (e) {
-      widget.setStatus('Cleanup error: $e');
-    }
-  }
-
-  void _showMaintenanceDialog(String driverId, String driverName) {
-    final maintenanceController = TextEditingController();
-    final dateController = TextEditingController(
-        text: DateTime.now().toIso8601String().split('T')[0]);
-    final commentController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add Maintenance Fee - $driverName'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: maintenanceController,
-              decoration: InputDecoration(
-                labelText: 'Maintenance Amount (\$)',
-                hintText: 'Enter amount',
+  Widget _buildMainContent() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => DynamicFieldAdder(
+                            geminiApiKey: widget.geminiApiKey,
+                            geminiModel: widget.geminiModel,
+                          )),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue, // Button color
+                foregroundColor: Colors.white, // Text color
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8), // Rounded corners
+                ),
+                padding: EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12), // Padding
               ),
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add),
+                  SizedBox(width: 8),
+                  Text('Add Template'),
+                ],
+              ),
             ),
             SizedBox(height: 16),
-            TextField(
-              controller: dateController,
-              decoration: InputDecoration(
-                labelText: 'Date',
-                hintText: 'YYYY-MM-DD',
+            ElevatedButton(
+              onPressed: _processImage,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green, // Button color
+                foregroundColor: Colors.white, // Text color
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8), // Rounded corners
+                ),
+                padding: EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12), // Padding
               ),
-              readOnly: true,
-              onTap: () async {
-                final date = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now(),
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.image),
+                  SizedBox(width: 8),
+                  Text('Process Image or PDF'),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
+            DropdownButton<String>(
+              value: _selectedTemplate.isEmpty ? null : _selectedTemplate,
+              hint: Text('Select a template to view documents'),
+              items: _templates.map((template) {
+                return DropdownMenuItem<String>(
+                  value: template['name'],
+                  child: Text(template['name']),
                 );
-                if (date != null) {
-                  dateController.text = date.toIso8601String().split('T')[0];
-                }
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedTemplate = value!;
+                });
               },
             ),
             SizedBox(height: 16),
-            TextField(
-              controller: commentController,
-              decoration: InputDecoration(
-                labelText: 'Comment',
-                hintText: 'Enter maintenance details',
-              ),
-              maxLines: 2,
-            ),
+            if (_selectedTemplate.isNotEmpty)
+              ElevatedButton(
+                onPressed: () => _viewDocuments(_selectedTemplate),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal, // Button color
+                  foregroundColor: Colors.white, // Text color
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8), // Rounded corners
+                  ),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12), // Padding
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.visibility),
+                    SizedBox(width: 8),
+                    Text('View Documents'),
+                  ],
+                ),
+              )
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final amount = double.tryParse(maintenanceController.text);
-              if (amount != null && amount > 0) {
-                await widget.firebaseService.addMaintenance(driverId, {
-                  'amount': amount,
-                  'date': dateController.text,
-                  'type': 'maintenance_fee',
-                  'comment': commentController.text.trim(),
-                  'order_number':
-                      'MAINT-${DateTime.now().millisecondsSinceEpoch}',
-                });
-                Navigator.pop(context);
-                widget.setStatus('Maintenance fee added');
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Please enter a valid amount')),
+      ),
+    );
+  }
+}
+
+class DynamicFieldAdder extends StatefulWidget {
+  final String geminiApiKey;
+  final String geminiModel;
+
+  DynamicFieldAdder({
+    required this.geminiApiKey,
+    required this.geminiModel,
+  });
+
+  @override
+  _DynamicFieldAdderState createState() => _DynamicFieldAdderState();
+}
+
+class _DynamicFieldAdderState extends State<DynamicFieldAdder> {
+  final _formKey = GlobalKey<FormState>();
+  final _collectionNameController = TextEditingController();
+  final _documentNameController = TextEditingController();
+  List<TextEditingController> _fieldNameControllers = [];
+  List<TextEditingController> _fieldValueControllers = [];
+  List<Map<String, dynamic>> _templates = [];
+  final _templateNameController = TextEditingController();
+  late DynamicFieldAdderService _service;
+  String _geminiOutput = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _service = DynamicFieldAdderService(
+      formKey: _formKey,
+      collectionNameController: _collectionNameController,
+      documentNameController: null,
+      fieldNameControllers: _fieldNameControllers,
+      fieldValueControllers: _fieldValueControllers,
+      templates: _templates,
+      templateNameController: _templateNameController,
+      setState: setState,
+    );
+    _service.addField(); // Add initial field
+    _service.loadTemplates();
+  }
+
+  @override
+  void dispose() {
+    _collectionNameController.dispose();
+    _documentNameController.dispose();
+    _templateNameController.dispose();
+    for (var controller in _fieldNameControllers) {
+      controller.dispose();
+    }
+    for (var controller in _fieldValueControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Expanded(
+            child: buildDynamicFieldAdderUI(
+              context,
+              _formKey,
+              _collectionNameController,
+              _documentNameController,
+              _templateNameController,
+              _fieldNameControllers,
+              _fieldValueControllers,
+              _templates,
+              _service.addField,
+              _service.addDynamicFields,
+              _service.saveTemplate,
+              _service.applyTemplate,
+              () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.image,
                 );
-              }
-            },
-            child: Text('Add'),
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await _service.generateTemplateFromImage(context, fileBytes,
+                        widget.geminiApiKey, widget.geminiModel);
+                  }
+                }
+              },
+              () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['pdf'],
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  final fileBytes = file.bytes;
+                  if (fileBytes != null) {
+                    await _service.generateTemplateFromPdf(
+                        fileBytes, widget.geminiApiKey, widget.geminiModel);
+                  }
+                }
+              },
+              _service.removeField,
+            ),
           ),
         ],
       ),
     );
   }
+}
 
-  Future<void> _processZellePayments() async {
+class ImageProcessorPage extends StatefulWidget {
+  @override
+  _ImageProcessorPageState createState() => _ImageProcessorPageState();
+}
+
+class _ImageProcessorPageState extends State<ImageProcessorPage> {
+  String _geminiOutput = '';
+  String _geminiApiKey = '';
+  String _geminiModel = '';
+  List<Map<String, dynamic>> _templates = [];
+  Map<String, dynamic>? _selectedTemplate;
+  late DynamicFieldAdderService _service;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiKeyAndModel();
+    _service = DynamicFieldAdderService(
+      formKey: GlobalKey<FormState>(),
+      collectionNameController: TextEditingController(),
+      documentNameController: TextEditingController(),
+      fieldNameControllers: [],
+      fieldValueControllers: [],
+      templates: _templates,
+      templateNameController: TextEditingController(),
+      setState: setState,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadTemplates();
+  }
+
+  Future<void> _loadApiKeyAndModel() async {
     try {
-      widget.setProcessing(true);
-      widget.setStatus('Selecting Zelle statement...');
-
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['txt'],
-        allowMultiple: false,
-      );
-
-      if (result == null || result.files.isEmpty) {
-        widget.setStatus('No file selected');
-        widget.setProcessing(false);
-        return;
-      }
-
-      final bytes = result.files.first.bytes;
-      if (bytes == null) {
-        widget.setStatus('Invalid file');
-        widget.setProcessing(false);
-        return;
-      }
-
-      widget.setStatus('Reading statement...');
-      final content = String.fromCharCodes(bytes);
-
-      widget.setStatus('Processing with AI...');
-      final response = await widget.model.generateContent([
-        Content.text('''
-          Extract Zelle payments from this statement and format as JSON:
-          {
-            "payments": [
-              {
-                "recipient": "recipient name",
-                "amount": "amount as number",
-                "date": "YYYY-MM-DD",
-                "note": "payment note if available"
-              }
-            ]
-          }
-          
-          Statement text:
-          $content
-        ''')
-      ]);
-
-      widget.setStatus('Parsing results...');
-      final jsonText = _cleanJsonResponse(response.text ?? '');
-      final data = json.decode(jsonText) as Map<String, dynamic>;
-
-      if (!data.containsKey('payments') || (data['payments'] as List).isEmpty) {
-        widget.setStatus('No payments found in statement');
-        widget.setProcessing(false);
-        return;
-      }
-
-      widget.setStatus('Loading existing mappings...');
-      final zelleDoc = await widget.firebaseService.getZelleMappings();
-      Map<String, String> zelleDirectory = Map<String, String>.from(
-          zelleDoc?.data() as Map<String, dynamic>? ?? {});
-
-      // Group payments by recipient
-      widget.setStatus('Processing payments...');
-      Map<String, List<Map<String, dynamic>>> paymentsByRecipient = {};
-      for (var payment in data['payments'] as List) {
-        final paymentMap = payment as Map<String, dynamic>;
-        final recipient =
-            paymentMap['recipient']?.toString().toLowerCase() ?? '';
-        if (recipient.isNotEmpty) {
-          paymentsByRecipient.putIfAbsent(recipient, () => []).add(paymentMap);
+      final configString = await rootBundle.loadString('assets/.config');
+      final lines = configString.split('\n');
+      for (final line in lines) {
+        if (line.startsWith('GEMINI_API_KEY=')) {
+          _geminiApiKey = line.substring('GEMINI_API_KEY='.length).trim();
+        } else if (line.startsWith('MODEL_NAME=')) {
+          _geminiModel = line.substring('MODEL_NAME='.length).trim();
         }
       }
-
-      int processedCount = 0;
-      // Show recipient matching dialog
-      for (var recipient in paymentsByRecipient.keys) {
-        widget.setStatus('Processing recipient: $recipient');
-        if (zelleDirectory.containsKey(recipient)) {
-          // Use existing mapping
-          final driverId = zelleDirectory[recipient]!;
-          await _addZellePaymentsToDriver(
-              driverId, paymentsByRecipient[recipient]!);
-          processedCount += paymentsByRecipient[recipient]!.length;
-        } else {
-          // Show mapping dialog
-          await _showZelleMatchingDialog(
-              recipient, paymentsByRecipient[recipient]!, zelleDirectory);
-          processedCount += paymentsByRecipient[recipient]!.length;
-        }
+      if (_geminiApiKey.isEmpty) {
+        print('GEMINI_API_KEY not found in .config file');
       }
-
-      widget.setStatus('Saving mappings...');
-      await widget.firebaseService.saveZelleMappings(zelleDirectory);
-
-      widget.setStatus('Completed! Processed $processedCount payments');
-      widget.setProcessing(false);
-    } catch (e, stackTrace) {
-      print('Error processing Zelle payments: $e\n$stackTrace');
-      widget.setStatus('Error: ${e.toString()}');
-      widget.setProcessing(false);
+      if (_geminiModel.isEmpty) {
+        print('MODEL_NAME not found in .config file');
+      }
+    } catch (e) {
+      print('Error loading .config file: $e');
     }
   }
 
-  Future<void> _showZelleMatchingDialog(
-      String recipient,
-      List<Map<String, dynamic>> payments,
-      Map<String, String> zelleDirectory) async {
-    await showDialog(
-      context: context,
-      builder: (context) => StreamBuilder<QuerySnapshot>(
-        stream: widget.firebaseService.getDrivers(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
+  Future<void> _loadTemplates() async {
+    await _service.loadTemplates();
+    setState(() {
+      _templates = _service.templates;
+    });
+  }
+
+  Future<void> _processImage() async {
+    if (_selectedTemplate == null) {
+      setState(() {
+        _geminiOutput = 'Please select a template.';
+      });
+      return;
+    }
+
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        _geminiOutput = 'Processing Images...';
+      });
+      try {
+        final apiKey = _geminiApiKey;
+        final model = gen_ai.GenerativeModel(
+            model: _geminiModel,
+            apiKey: apiKey,
+            generationConfig:
+                GenerationConfig(responseMimeType: 'application/json'));
+
+        // Build the JSON template string from the selected template
+        String jsonTemplate = '{';
+        for (final entry in _selectedTemplate!.entries) {
+          if (entry.key != 'name') {
+            jsonTemplate += '"${entry.key}": "${entry.value}",';
           }
+        }
+        if (jsonTemplate.endsWith(',')) {
+          jsonTemplate = jsonTemplate.substring(0, jsonTemplate.length - 1);
+        }
+        jsonTemplate += '}';
 
-          final drivers = snapshot.data!.docs;
-          final total = payments.fold(
-              0.0,
-              (sum, payment) =>
-                  sum + (double.tryParse(payment['amount'].toString()) ?? 0.0));
+        List<gen_ai.Part> parts = [
+          gen_ai.TextPart(
+              """Extract the following information from this invoice and format it exactly as shown in the JSON template below:
 
-          return AlertDialog(
-            title: Text('Match Zelle Recipient'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Recipient: $recipient'),
-                  Text('Total Amount: \$${total.toStringAsFixed(2)}'),
-                  Text('Payments:'),
-                  ...payments
-                      .map((p) => Text('  \$${p['amount']} on ${p['date']}')),
-                  Divider(),
-                  Text('Select Driver:'),
-                  ...drivers.map((driver) {
-                    final data = driver.data() as Map<String, dynamic>;
-                    return ListTile(
-                      title: Text(data['name'] as String? ?? 'Unknown Driver'),
-                      onTap: () async {
-                        zelleDirectory[recipient] = driver.id;
-                        await _addZellePaymentsToDriver(driver.id, payments);
-                        Navigator.pop(context);
-                      },
-                    );
-                  }),
-                ],
-              ),
+            $jsonTemplate
+            """)
+        ];
+
+        for (final file in result.files) {
+          final imageBytes = file.bytes;
+          if (imageBytes == null) {
+            setState(() {
+              _geminiOutput = 'Error reading image bytes.';
+            });
+            return;
+          }
+          img.Image? image = img.decodeImage(imageBytes);
+          if (image == null) {
+            setState(() {
+              _geminiOutput = 'Error decoding image.';
+            });
+            return;
+          }
+          Uint8List encodedImageBytes = img.encodeJpg(image);
+          parts.add(gen_ai.DataPart('image/jpeg', encodedImageBytes));
+        }
+
+        final content = [gen_ai.Content.multi(parts)];
+
+        final response = await model.generateContent(content);
+        String responseText = response.text ?? '';
+        responseText = responseText.trim();
+        responseText =
+            responseText.replaceAll('```json', '').replaceAll('```', '');
+        int startIdx = responseText.indexOf('{');
+        int endIdx = responseText.lastIndexOf('}') + 1;
+        if (startIdx != -1 && endIdx != -1) {
+          responseText = responseText.substring(startIdx, endIdx);
+        }
+        final jsonOutput = json.decode(responseText);
+        setState(() {
+          _geminiOutput = JsonEncoder.withIndent('  ').convert(jsonOutput);
+        });
+      } catch (e) {
+        setState(() {
+          _geminiOutput = 'Error processing image: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Process Image')),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              itemCount: _templates.length,
+              itemBuilder: (context, index) {
+                final template = _templates[index];
+                return ListTile(
+                  title: Text(template['name'] ?? 'Unnamed Template'),
+                  onTap: () {
+                    setState(() {
+                      _selectedTemplate = template;
+                    });
+                  },
+                  trailing: _selectedTemplate == template
+                      ? Icon(Icons.check_circle, color: Colors.green)
+                      : null,
+                );
+              },
             ),
-            actions: [
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EmailVerificationPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Verify Email')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Please verify your email address. A verification link has been sent to your email.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () async {
+                  await FirebaseAuth.instance.currentUser?.reload();
+                  if (FirebaseAuth.instance.currentUser?.emailVerified ==
+                      true) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HomePage(
+                          geminiApiKey: '',
+                          geminiModel: '',
+                        ),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              'Email not verified yet. Please check your email and try again.')),
+                    );
+                  }
+                },
+                child: Text('Check Verification Status'),
+              ),
+              SizedBox(height: 10),
               TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Skip'),
+                onPressed: () async {
+                  await FirebaseAuth.instance.currentUser
+                      ?.sendEmailVerification();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'A new verification email has been sent to your email address.')),
+                  );
+                },
+                child: Text('Resend Verification Email'),
               ),
             ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _addZellePaymentsToDriver(
-      String driverId, List<Map<String, dynamic>> payments) async {
-    // Get existing payments for the driver
-    final existingPayments =
-        await widget.firebaseService.getDriverPaymentsOnce(driverId);
-
-    for (var payment in payments) {
-      try {
-        final amount =
-            double.tryParse(payment['amount']?.toString() ?? '0') ?? 0.0;
-        final date = payment['date']?.toString() ?? '';
-        final note = payment['note']?.toString() ?? '';
-
-        // Check if a payment with the same amount and date already exists
-        final paymentExists = existingPayments.docs.any((doc) {
-          final existingData = doc.data() as Map<String, dynamic>;
-          return (existingData['amount'] as num? ?? 0.0) == amount &&
-              (existingData['date']?.toString() ?? '') == date;
-        });
-
-        if (!paymentExists) {
-          await widget.firebaseService.addPayment(driverId, {
-            'amount': amount,
-            'date': date,
-            'type': 'zelle_payment',
-            'note': note,
-            'order_number': 'ZELLE-${DateTime.now().millisecondsSinceEpoch}',
-          });
-        }
-      } catch (e) {
-        print('Error adding Zelle payment: $e');
-      }
-    }
-  }
-
-  Future<void> _showAssignEmailDialog(
-      String driverId, String driverName) async {
-    final _emailController = TextEditingController();
-    final _formKey = GlobalKey<FormState>();
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Assign Email to: $driverName'),
-        content: Form(
-          key: _formKey,
-          child: TextFormField(
-            controller: _emailController,
-            decoration: InputDecoration(labelText: 'Driver Email'),
-            keyboardType: TextInputType.emailAddress,
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter an email';
-              }
-              return null;
-            },
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (_formKey.currentState!.validate()) {
-                await widget.firebaseService
-                    .updateDriverEmail(driverId, _emailController.text.trim());
-                Navigator.pop(context);
-                widget.setStatus('Driver email updated');
-              }
-            },
-            child: Text('Assign'),
-          ),
-        ],
       ),
     );
   }

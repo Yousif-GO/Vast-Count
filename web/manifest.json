@@ -1,11 +1,11 @@
 {
-    "name": "ai_accountant",
-    "short_name": "ai_accountant",
+    "name": "Vastcount",
+    "short_name": "Vastcount",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "An intelligent accounting assistant that uses AI to help with document processing, data extraction, and financial management.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
